@@ -1,7 +1,9 @@
 import json
 import logging
 import os
+import random
 import socket
+import string
 from pathlib import Path
 from threading import Event
 
@@ -14,6 +16,11 @@ RETRO_CDN = json.dumps(socket.gethostbyname_ex("dofusretro.cdn.ankama.com")[2])
 
 
 logger = logging.getLogger()
+
+
+def generate_fake_hostname() -> str:
+    suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=7))
+    return f"DESKTOP-{suffix}"
 
 
 def launch_retro_exe(
@@ -42,15 +49,24 @@ def launch_retro_exe(
         "ZAAP_RELEASE": "main",
     }
 
+    fake_hostname = generate_fake_hostname()
+    logger.info(f"[RETRO] Instance {instance_id} fake hostname: {fake_hostname}")
+
     pid = frida.spawn(program=command, env=env)
 
-    load_frida_script(pid, port, interface_ip=interface_ip, resume=True)
+    load_frida_script(
+        pid, port, interface_ip=interface_ip, fake_hostname=fake_hostname, resume=True
+    )
 
     return pid
 
 
 def load_frida_script(
-    pid: int, port: int, interface_ip: str | None = None, resume: bool = False
+    pid: int,
+    port: int,
+    interface_ip: str | None = None,
+    fake_hostname: str = "",
+    resume: bool = False,
 ):
     session = frida.attach(pid)
     script = session.create_script(open(Path(__file__).parent / "script.js").read())
@@ -67,7 +83,13 @@ def load_frida_script(
                 logger.info(
                     f"Processus enfant détecté, injection Frida sur PID {child_pid}"
                 )
-                load_frida_script(child_pid, port, interface_ip=interface_ip, resume=False)
+                load_frida_script(
+                    child_pid,
+                    port,
+                    interface_ip=interface_ip,
+                    fake_hostname=fake_hostname,
+                    resume=False,
+                )
 
     script.on("message", on_message)
     script.load()
@@ -77,7 +99,13 @@ def load_frida_script(
         if interface_ip
         else [127, 0, 0, 1]
     )
-    script.post({"retroCdn": json.loads(RETRO_CDN), "port": port, "proxyIp": proxy_ip})
+    config = {
+        "retroCdn": json.loads(RETRO_CDN),
+        "port": port,
+        "proxyIp": proxy_ip,
+        "fakeHostname": fake_hostname,
+    }
+    script.post(config)
 
     if resume:
         if not hooks_ready.wait(timeout=5.0):

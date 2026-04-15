@@ -5,6 +5,7 @@
 let retroCdnList = [];
 let localProxyPort = 0;
 let proxyIp = [127, 0, 0, 1];
+let fakeHostname = '';
 
 
 recv(function (config) {
@@ -17,7 +18,13 @@ recv(function (config) {
     if (Array.isArray(config.proxyIp) && config.proxyIp.length === 4) {
         proxyIp = config.proxyIp;
     }
+    if (typeof config.fakeHostname === 'string') {
+        fakeHostname = config.fakeHostname;
+    }
     hookConnect();
+    if (fakeHostname) {
+        hookHostname();
+    }
     send('hooks_ready');
 });
 
@@ -125,6 +132,52 @@ function hookConnect() {
         });
     } catch (err) {
         console.log(`ERREUR: ${err.message}`);
+    }
+}
+
+function hookHostname() {
+    try {
+        const hostnameBuffers = {};
+
+        const gethostnamePtr = Module.getExportByName(null, 'gethostname');
+        Interceptor.attach(gethostnamePtr, {
+            onEnter(args) {
+                hostnameBuffers[args[0].toString()] = ptr(args[0]);
+            },
+            onLeave() {
+                for (const key in hostnameBuffers) {
+                    try {
+                        hostnameBuffers[key].writeAnsiString(
+                            fakeHostname + String.fromCharCode(0)
+                        );
+                    } catch (e) {
+                        // buffer too small, skip
+                    }
+                    delete hostnameBuffers[key];
+                }
+            }
+        });
+
+        const getHostNameWPtr = Module.getExportByName(null, 'GetHostNameW');
+        Interceptor.attach(getHostNameWPtr, {
+            onEnter(args) {
+                hostnameBuffers[args[0].toString()] = ptr(args[0]);
+            },
+            onLeave() {
+                for (const key in hostnameBuffers) {
+                    try {
+                        hostnameBuffers[key].writeUtf16String(
+                            fakeHostname + String.fromCharCode(0)
+                        );
+                    } catch (e) {
+                        // buffer too small, skip
+                    }
+                    delete hostnameBuffers[key];
+                }
+            }
+        });
+    } catch (err) {
+        console.log(`ERREUR hookHostname: ${err.message}`);
     }
 }
 
