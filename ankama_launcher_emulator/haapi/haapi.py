@@ -6,6 +6,7 @@ from typing import Any
 import requests
 import urllib3
 
+from ankama_launcher_emulator.utils.debug_logger import hook_session
 from ankama_launcher_emulator.utils.internet import InterfaceAdapter
 from ankama_launcher_emulator.utils.proxy import to_socks5h
 
@@ -75,6 +76,7 @@ class Haapi:
             "accept-language": "fr",
         }
         self.zaap_session.headers.update(self.zaap_headers)
+        hook_session(self.zaap_session)
 
     @retry_internet
     def signOnWithApiKey(self, game_id: int) -> dict[str, Any]:
