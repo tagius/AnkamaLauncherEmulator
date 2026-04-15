@@ -87,14 +87,19 @@ class AnkamaLauncherServer:
         random_hash = str(uuid.uuid4())
         self.instance_id += 1
 
-        api_key = CryptoHelper.getStoredApiKey(login)["apikey"]["key"]
+        apikey_data = CryptoHelper.getStoredApiKey(login)["apikey"]
+        api_key = apikey_data["key"]
 
         self.handler.infos_by_hash[random_hash] = AccountGameInfo(
             login=login,
             game_id=102,
             api_key=api_key,
             haapi=Haapi(
-                api_key, interface_ip=interface_ip, login=login, proxy_url=proxy_url
+                api_key,
+                interface_ip=interface_ip,
+                login=login,
+                proxy_url=proxy_url,
+                refresh_token=apikey_data.get("refreshToken"),
             ),
         )
 
@@ -141,14 +146,19 @@ class AnkamaLauncherServer:
         random_hash = str(uuid.uuid4())
         self.instance_id += 1
 
-        api_key = CryptoHelper.getStoredApiKey(login)["apikey"]["key"]
+        apikey_data = CryptoHelper.getStoredApiKey(login)["apikey"]
+        api_key = apikey_data["key"]
 
         self.handler.infos_by_hash[random_hash] = AccountGameInfo(
             login=login,
             game_id=101,
             api_key=api_key,
             haapi=Haapi(
-                api_key, interface_ip=interface_ip, login=login, proxy_url=proxy_url
+                api_key,
+                interface_ip=interface_ip,
+                login=login,
+                proxy_url=proxy_url,
+                refresh_token=apikey_data.get("refreshToken"),
             ),
         )
 

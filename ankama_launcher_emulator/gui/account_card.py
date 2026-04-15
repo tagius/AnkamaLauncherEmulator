@@ -1,10 +1,18 @@
 import psutil
 from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel
-from qfluentwidgets import BodyLabel, CardWidget, ComboBox, LineEdit, PrimaryPushButton
+from qfluentwidgets import (
+    BodyLabel,
+    CardWidget,
+    ComboBox,
+    LineEdit,
+    PrimaryPushButton,
+    PushButton,
+)
 
 from ankama_launcher_emulator.gui.consts import GREEN_HEXA
-from ankama_launcher_emulator.utils.proxy import validation_proxy_url
+from ankama_launcher_emulator.gui.utils import run_in_background
+from ankama_launcher_emulator.utils.proxy import validation_proxy_url, verify_proxy_ip
 
 
 class AccountCard(CardWidget):
@@ -56,10 +64,38 @@ class AccountCard(CardWidget):
         self._proxy_input.setFixedWidth(300)
         layout.addWidget(self._proxy_input)
 
+        self._test_proxy_btn = PushButton("Test")
+        self._test_proxy_btn.setFixedWidth(50)
+        self._test_proxy_btn.clicked.connect(self._on_test_proxy)
+        layout.addWidget(self._test_proxy_btn)
+
         self._launch_btn = PrimaryPushButton("Launch")
         self._launch_btn.setFixedWidth(100)
         self._launch_btn.clicked.connect(self._on_btn_clicked)
         layout.addWidget(self._launch_btn)
+
+    def _on_test_proxy(self) -> None:
+        proxy_url = self._proxy_input.text().strip() or None
+        if not proxy_url or not validation_proxy_url(proxy_url):
+            self.error_occurred.emit("Enter a valid socks5:// proxy URL first")
+            return
+        self._test_proxy_btn.setDisabled(True)
+        self._test_proxy_btn.setText("...")
+
+        def task(_on_progress: object) -> str:
+            return verify_proxy_ip(proxy_url)
+
+        def on_success(ip: object) -> None:
+            self._test_proxy_btn.setEnabled(True)
+            self._test_proxy_btn.setText("Test")
+            self._proxy_input.setPlaceholderText(f"Exit IP: {ip}")
+
+        def on_error(err: object) -> None:
+            self._test_proxy_btn.setEnabled(True)
+            self._test_proxy_btn.setText("Test")
+            self.error_occurred.emit(f"Proxy test failed: {err}")
+
+        run_in_background(task, on_success=on_success, on_error=on_error, parent=self)
 
     def _on_btn_clicked(self) -> None:
         if self._current_pid is not None:

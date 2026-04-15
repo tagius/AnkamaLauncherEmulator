@@ -42,7 +42,7 @@ from ankama_launcher_emulator.gui.star_dialog import (
 from ankama_launcher_emulator.gui.utils import run_in_background
 from ankama_launcher_emulator.server.server import AnkamaLauncherServer
 from ankama_launcher_emulator.utils.internet import get_available_network_interfaces
-from ankama_launcher_emulator.utils.proxy import build_proxy_listener
+from ankama_launcher_emulator.utils.proxy import build_proxy_listener, verify_proxy_ip
 
 
 @dataclass
@@ -276,6 +276,11 @@ class MainWindow(QMainWindow):
         on_progress: Callable[[str], None] | None = None,
     ) -> int:
         proxy_listener, proxy_url = build_proxy_listener(proxy_url)
+        if proxy_url:
+            interface_ip = None
+            if on_progress:
+                on_progress("Verifying proxy...")
+            verify_proxy_ip(proxy_url)
         return self._server.launch_dofus(
             login,
             proxy_listener=proxy_listener,
@@ -291,6 +296,11 @@ class MainWindow(QMainWindow):
         proxy_url: str | None,
         on_progress: Callable[[str], None] | None = None,
     ) -> int:
+        if proxy_url:
+            interface_ip = None
+            if on_progress:
+                on_progress("Verifying proxy...")
+            verify_proxy_ip(proxy_url)
         return self._server.launch_retro(
             login,
             proxy_url=proxy_url,

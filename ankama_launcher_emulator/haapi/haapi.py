@@ -17,6 +17,7 @@ from ankama_launcher_emulator.decrypter.crypto_helper import (
 from ankama_launcher_emulator.haapi.urls import (
     ANKAMA_ACCOUNT_CREATE_TOKEN,
     ANKAMA_ACCOUNT_SIGN_ON_WITH_API_KEY,
+    ANKAMA_API_REFRESH_API_KEY,
 )
 from ankama_launcher_emulator.haapi.zaap_version import (
     ZAAP_VERSION,
@@ -47,6 +48,7 @@ class Haapi:
     login: str
     interface_ip: str | None
     proxy_url: str | None
+    refresh_token: str | None = None
 
     def __post_init__(self):
         self.zaap_session = requests.Session()
@@ -82,7 +84,21 @@ class Haapi:
         return body
 
     @retry_internet
+    def refreshApiKey(self) -> None:
+        if not self.refresh_token:
+            return
+        url = ANKAMA_API_REFRESH_API_KEY
+        response = self.zaap_session.post(
+            url,
+            data=f"refresh_token={self.refresh_token}&long_life_token=true",
+            headers={"content-type": "text/plain;charset=UTF-8"},
+            verify=False,
+        )
+        response.raise_for_status()
+
+    @retry_internet
     def createToken(self, game_id: int, certif: DecipheredCertifDatas | None) -> str:
+        self.refreshApiKey()
         url = ANKAMA_ACCOUNT_CREATE_TOKEN
         params: dict = {"game": game_id}
         if certif:

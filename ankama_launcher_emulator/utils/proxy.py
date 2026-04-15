@@ -1,12 +1,31 @@
+import logging
 from urllib.parse import urlparse
 
+import requests
+
 from ankama_launcher_emulator.proxy.dofus3.proxy_listener import ProxyListener
+
+logger = logging.getLogger()
 
 
 def validation_proxy_url(proxy_url: str | None) -> bool:
     if not proxy_url:
         return True
     return urlparse(proxy_url).scheme == "socks5"
+
+
+def verify_proxy_ip(proxy_url: str, timeout: int = 10) -> str:
+    """Check proxy is reachable and return its exit IP. Raises on failure."""
+    session = requests.Session()
+    session.proxies = {"http": proxy_url, "https": proxy_url}
+    try:
+        response = session.get("https://api.ipify.org", timeout=timeout)
+        response.raise_for_status()
+        exit_ip = response.text.strip()
+        logger.info(f"[PROXY] Exit IP: {exit_ip}")
+        return exit_ip
+    except (requests.RequestException, OSError) as err:
+        raise ConnectionError(f"Proxy unreachable or failed: {err}") from err
 
 
 def get_info_by_proxy_url(proxy_url: str):
@@ -20,9 +39,12 @@ def build_proxy_listener(proxy_url: str | None) -> tuple[ProxyListener, str | No
     if not proxy_url:
         return ProxyListener(), None
     parsed = get_info_by_proxy_url(proxy_url)
-    return ProxyListener(
-        socks5_host=parsed.hostname,
-        socks5_port=parsed.port,
-        socks5_username=parsed.username or None,
-        socks5_password=parsed.password or None,
-    ), None
+    return (
+        ProxyListener(
+            socks5_host=parsed.hostname,
+            socks5_port=parsed.port,
+            socks5_username=parsed.username or None,
+            socks5_password=parsed.password or None,
+        ),
+        proxy_url,
+    )
