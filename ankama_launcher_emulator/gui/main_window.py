@@ -37,7 +37,6 @@ from ankama_launcher_emulator.gui.consts import (
 )
 from ankama_launcher_emulator.gui.download_banner import DownloadBanner
 from ankama_launcher_emulator.gui.game_selector_card import GameSelectorCard
-from ankama_launcher_emulator.gui.shield_browser_dialog import ShieldBrowserDialog
 from ankama_launcher_emulator.gui.shield_dialog import ShieldCodeDialog
 from ankama_launcher_emulator.gui.star_dialog import (
     StarBar,
@@ -300,6 +299,11 @@ class MainWindow(QMainWindow):
         set_panel_status: Callable[[str], None],
     ) -> None:
         # Step 1: PKCE login via embedded browser (GUI thread)
+        # Lazy import — QtWebEngine DLLs only loaded when Shield triggers
+        from ankama_launcher_emulator.gui.shield_browser_dialog import (
+            ShieldBrowserDialog,
+        )
+
         pkce = PkceSession(game_id=err.game_id, proxy_url=err.proxy_url)
         browser = ShieldBrowserDialog(pkce.auth_url, err.login, parent=self)
         if browser.exec() != QDialog.DialogCode.Accepted:

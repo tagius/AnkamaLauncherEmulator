@@ -9,7 +9,10 @@ a = Analysis(
         ('ankama_launcher_emulator/server/dofus3/script.js', 'ankama_launcher_emulator/server/dofus3'),
         ('ankama_launcher_emulator/server/retro/script.js', 'ankama_launcher_emulator/server/retro'),
     ],
-    hiddenimports=[],
+    hiddenimports=[
+        'PyQt6.QtWebEngineCore',
+        'PyQt6.QtWebEngineWidgets',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
