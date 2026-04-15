@@ -1,13 +1,17 @@
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QMouseEvent, QPixmap
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel
+from PyQt6.QtGui import QFont, QMouseEvent, QPixmap
+from PyQt6.QtWidgets import QFrame, QGraphicsOpacityEffect, QLabel, QVBoxLayout
 
-COLOR = QColor("#00470E")
-COLOR_ACTIVE = COLOR.lighter(200).name()
-COLOR_INACTIVE = COLOR.darker(200).name()
-COLOR_UNAVAILABLE = QColor("#3a3a3a").name()
+from ankama_launcher_emulator.gui.consts import (
+    BORDER_HEXA,
+    NAV_ACTIVE_HEXA,
+    NAV_INACTIVE_HEXA,
+    ORANGE_HEXA,
+    PANEL_ALT_HEXA,
+    TEXT_MUTED_HEXA,
+)
 
 
 class GameSelectorCard(QFrame):
@@ -18,54 +22,69 @@ class GameSelectorCard(QFrame):
     ):
         super().__init__(parent)
         self._available = available
+        self.setProperty("navRole", "game")
         self.setCursor(
             Qt.CursorShape.PointingHandCursor
             if available
             else Qt.CursorShape.ForbiddenCursor
         )
-        self.setMinimumHeight(72)
+        self.setFixedSize(88, 108)
         self._setup_ui(title, logo_path)
         self.set_active(is_active)
 
     def _setup_ui(self, title: str, logo_path: Path) -> None:
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(14)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 14, 12, 14)
+        layout.setSpacing(8)
 
         logo = QLabel()
         pixmap = QPixmap(str(logo_path)).scaled(
-            48,
-            48,
+            42,
+            42,
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
         logo.setPixmap(pixmap)
-        logo.setFixedSize(48, 48)
-        layout.addWidget(logo)
+        logo.setFixedSize(42, 42)
+        layout.addWidget(logo, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self._title_label = QLabel(title)
         font = self._title_label.font()
-        font.setPointSize(12)
+        font.setPointSize(10)
         font.setWeight(QFont.Weight.DemiBold)
         self._title_label.setFont(font)
-        layout.addWidget(self._title_label, 1)
+        self._title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._title_label.setWordWrap(True)
+        layout.addWidget(self._title_label)
 
     def set_active(self, active: bool) -> None:
         if not self._available:
-            bg = COLOR_UNAVAILABLE
+            border = BORDER_HEXA
+            bg = PANEL_ALT_HEXA
+            text = TEXT_MUTED_HEXA
         else:
-            bg = COLOR_ACTIVE if active else COLOR_INACTIVE
+            border = ORANGE_HEXA if active else BORDER_HEXA
+            bg = NAV_ACTIVE_HEXA if active else NAV_INACTIVE_HEXA
+            text = "#f3f3f3" if active else "#d0d0d0"
         self.setStyleSheet(
-            f"GameSelectorCard {{ background-color: {bg}; border-radius: 8px; }}"
+            "GameSelectorCard {"
+            f"background-color: {bg};"
+            f"border: 1px solid {border};"
+            "border-radius: 18px;"
+            "}"
+            f"GameSelectorCard QLabel {{ color: {text}; }}"
         )
         self.setGraphicsEffect(None)
         if not self._available:
-            from PyQt6.QtWidgets import QGraphicsOpacityEffect
             effect = QGraphicsOpacityEffect(self)
-            effect.setOpacity(0.45)
+            effect.setOpacity(0.42)
             self.setGraphicsEffect(effect)
 
     def mousePressEvent(self, a0: QMouseEvent | None) -> None:
-        if a0 is not None and a0.button() == Qt.MouseButton.LeftButton:
+        if (
+            self._available
+            and a0 is not None
+            and a0.button() == Qt.MouseButton.LeftButton
+        ):
             self.clicked.emit()
         super().mousePressEvent(a0)

@@ -14,6 +14,8 @@ from PyQt6.QtWidgets import (
 )
 from qfluentwidgets import (
     BodyLabel,
+    CaptionLabel,
+    CardWidget,
     InfoBar,
     InfoBarPosition,
     PushButton,
@@ -30,10 +32,15 @@ from ankama_launcher_emulator.consts import (
 from ankama_launcher_emulator.decrypter.crypto_helper import CryptoHelper
 from ankama_launcher_emulator.gui.account_card import AccountCard
 from ankama_launcher_emulator.gui.consts import (
+    APP_BG_HEXA,
+    BORDER_HEXA,
     DOFUS_3_TITLE,
     DOFUS_RETRO_TITLE,
     ORANGE_HEXA,
+    PANEL_ALT_HEXA,
+    PANEL_BG_HEXA,
     RED_HEXA,
+    TEXT_MUTED_HEXA,
 )
 from ankama_launcher_emulator.gui.download_banner import DownloadBanner
 from ankama_launcher_emulator.gui.game_selector_card import GameSelectorCard
@@ -81,22 +88,27 @@ class MainWindow(QMainWindow):
 
     def _setup_ui(self, accounts: list, all_interface: dict) -> None:
         self.setWindowTitle("Ankama Launcher")
-        self.setMinimumWidth(1000)
-        self.resize(1150, 600)
+        self.setMinimumWidth(1080)
+        self.resize(1240, 760)
+        self.setStyleSheet(
+            "MainWindow {"
+            f"background-color: {APP_BG_HEXA};"
+            "}"
+            f"QWidget#sidebar {{ background-color: {PANEL_BG_HEXA}; border-right: 1px solid {BORDER_HEXA}; }}"
+            f"QWidget#contentShell {{ background-color: {APP_BG_HEXA}; }}"
+            f"QWidget#topBar {{ background-color: {PANEL_BG_HEXA}; border: 1px solid {BORDER_HEXA}; border-radius: 20px; }}"
+            f"QWidget#topBar CaptionLabel {{ color: {TEXT_MUTED_HEXA}; }}"
+            f"CardWidget#warningCard {{ background-color: {PANEL_ALT_HEXA}; border: 1px solid {BORDER_HEXA}; border-radius: 18px; }}"
+            f"CardWidget#emptyStateCard {{ background-color: {PANEL_BG_HEXA}; border: 1px solid {BORDER_HEXA}; border-radius: 20px; }}"
+            f"CardWidget#emptyStateCard BodyLabel {{ color: {TEXT_MUTED_HEXA}; }}"
+        )
 
         central = QWidget()
         self.setCentralWidget(central)
 
-        layout = QVBoxLayout(central)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(12)
-
-        if not has_shown_star_repo():
-            layout.addWidget(StarBar())
-
-        # Header row: [Dofus 3] [Retro] ... [Gear] [+ Add]
-        header_row = QHBoxLayout()
-        header_row.setSpacing(12)
+        root_layout = QHBoxLayout(central)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
 
         self._dofus_selector = GameSelectorCard(
             DOFUS_3_TITLE, RESOURCES / "Dofus3.png", False, available=DOFUS_INSTALLED
@@ -110,64 +122,116 @@ class MainWindow(QMainWindow):
         self._dofus_selector.clicked.connect(lambda: self._select_game(True))
         self._retro_selector.clicked.connect(lambda: self._select_game(False))
 
-        header_row.addWidget(self._dofus_selector)
-        header_row.addWidget(self._retro_selector)
-        header_row.addStretch()
+        self._sidebar = QWidget()
+        self._sidebar.setObjectName("sidebar")
+        sidebar_layout = QVBoxLayout(self._sidebar)
+        sidebar_layout.setContentsMargins(14, 18, 14, 18)
+        sidebar_layout.setSpacing(12)
+        sidebar_layout.addWidget(self._dofus_selector)
+        sidebar_layout.addWidget(self._retro_selector)
+        sidebar_layout.addStretch()
+        root_layout.addWidget(self._sidebar)
 
-        gear_btn = PushButton("Proxies")
-        gear_btn.setFixedWidth(80)
-        gear_btn.clicked.connect(self._open_proxy_dialog)
-        header_row.addWidget(gear_btn)
+        content_shell = QWidget()
+        content_shell.setObjectName("contentShell")
+        layout = QVBoxLayout(content_shell)
+        layout.setContentsMargins(24, 20, 24, 24)
+        layout.setSpacing(14)
+        root_layout.addWidget(content_shell, 1)
 
-        add_btn = PushButton("+ Add")
-        add_btn.setFixedWidth(80)
-        add_btn.clicked.connect(self._open_add_account_dialog)
-        header_row.addWidget(add_btn)
+        self._top_bar = QWidget()
+        self._top_bar.setObjectName("topBar")
+        top_bar_layout = QHBoxLayout(self._top_bar)
+        top_bar_layout.setContentsMargins(20, 18, 20, 18)
+        top_bar_layout.setSpacing(16)
 
-        layout.addLayout(header_row)
+        title_stack = QVBoxLayout()
+        title_stack.setSpacing(2)
 
-        if not CYTRUS_INSTALLED:
-            cytrus_warning = BodyLabel(
-                "cytrus-v6 is not installed. Auto-update will not work.\n"
-                "Install it with: npm install -g cytrus-v6"
-            )
-            cytrus_warning.setStyleSheet(f"color: {ORANGE_HEXA};")
-            cytrus_warning.setWordWrap(True)
-            layout.addWidget(cytrus_warning)
-
+        top_label = CaptionLabel("Selected Game")
         self._title_label = TitleLabel(
             DOFUS_3_TITLE if self._current_game_is_dofus3 else DOFUS_RETRO_TITLE
         )
-        self._title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self._title_label)
+        self._title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self._subtitle_label = BodyLabel("Launch accounts, proxies, and network routes.")
+        self._subtitle_label.setStyleSheet(f"color: {TEXT_MUTED_HEXA};")
 
-        # Banner for status messages
+        title_stack.addWidget(top_label)
+        title_stack.addWidget(self._title_label)
+        title_stack.addWidget(self._subtitle_label)
+        top_bar_layout.addLayout(title_stack, 1)
+
+        action_row = QHBoxLayout()
+        action_row.setSpacing(10)
+
+        gear_btn = PushButton("Proxies")
+        gear_btn.setFixedWidth(100)
+        gear_btn.clicked.connect(self._open_proxy_dialog)
+        action_row.addWidget(gear_btn)
+
+        add_btn = PushButton("Add Account")
+        add_btn.setFixedWidth(124)
+        add_btn.setStyleSheet(
+            "PushButton {"
+            f"background-color: {ORANGE_HEXA};"
+            "color: white;"
+            "border-radius: 10px;"
+            "padding: 8px 14px;"
+            "}"
+        )
+        add_btn.clicked.connect(self._open_add_account_dialog)
+        action_row.addWidget(add_btn)
+        top_bar_layout.addLayout(action_row)
+
+        layout.addWidget(self._top_bar)
+
+        if not has_shown_star_repo():
+            layout.addWidget(StarBar())
+
+        if not CYTRUS_INSTALLED:
+            self._warning_card = CardWidget()
+            self._warning_card.setObjectName("warningCard")
+            warning_layout = QVBoxLayout(self._warning_card)
+            warning_layout.setContentsMargins(18, 16, 18, 16)
+            warning_layout.setSpacing(4)
+            warning_layout.addWidget(BodyLabel("cytrus-v6 is not installed"))
+            warning_hint = CaptionLabel(
+                "Auto-update will not work. Install it with: npm install -g cytrus-v6"
+            )
+            warning_hint.setWordWrap(True)
+            warning_layout.addWidget(warning_hint)
+            layout.addWidget(self._warning_card)
+        else:
+            self._warning_card = None
+
         self._banner = DownloadBanner()
         layout.addWidget(self._banner)
 
-        if not accounts:
-            label = BodyLabel(
-                f"No account found.\n"
-                f"Check that ankama launcher is installed and has logged accounts.\n"
-                f"Expected path : {ZAAP_PATH}/keydata/\n\n"
-                f"Or click '+ Add' to add an account manually."
-            )
-            label.setStyleSheet(f"color: {RED_HEXA};")
-            label.setWordWrap(True)
-            layout.addWidget(label)
-            self._no_account_label = label
-        else:
-            self._no_account_label = None
-
-        # Single scroll area with all account cards
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
 
         self._card_container = QWidget()
         self._card_layout = QVBoxLayout(self._card_container)
-        self._card_layout.setContentsMargins(0, 0, 0, 0)
-        self._card_layout.setSpacing(8)
+        self._card_layout.setContentsMargins(0, 4, 0, 4)
+        self._card_layout.setSpacing(10)
+
+        self._empty_state_card = CardWidget()
+        self._empty_state_card.setObjectName("emptyStateCard")
+        empty_layout = QVBoxLayout(self._empty_state_card)
+        empty_layout.setContentsMargins(28, 28, 28, 28)
+        empty_layout.setSpacing(8)
+        empty_layout.addWidget(TitleLabel("No account found"))
+        self._empty_state_label = BodyLabel(
+            "No account found.\n"
+            "Check that Ankama Launcher is installed and has logged accounts.\n"
+            f"Expected path: {ZAAP_PATH}/keydata/\n\n"
+            "Or click 'Add Account' to add an account manually."
+        )
+        self._empty_state_label.setWordWrap(True)
+        self._empty_state_label.setStyleSheet(f"color: {RED_HEXA};")
+        empty_layout.addWidget(self._empty_state_label)
+        self._card_layout.addWidget(self._empty_state_card)
 
         for account in accounts:
             self._add_card(account, all_interface)
@@ -177,10 +241,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(scroll, 1)
 
         self._select_game(self._current_game_is_dofus3)
+        self._sync_empty_state()
 
     def _select_game(self, is_dofus_3: bool) -> None:
         self._current_game_is_dofus3 = is_dofus_3
         self._title_label.setText(DOFUS_3_TITLE if is_dofus_3 else DOFUS_RETRO_TITLE)
+        self._subtitle_label.setText(
+            "Launch accounts, proxies, and network routes."
+            if is_dofus_3
+            else "Launch Retro accounts with the same per-account controls."
+        )
         self._dofus_selector.set_active(is_dofus_3)
         self._retro_selector.set_active(not is_dofus_3)
 
@@ -201,6 +271,7 @@ class MainWindow(QMainWindow):
         )
         card.error_occurred.connect(self._show_error)
         self._card_layout.insertWidget(self._card_layout.count() - 1, card)
+        self._sync_empty_state()
         return card
 
     def _set_panel_status(self, text: str) -> None:
@@ -212,6 +283,9 @@ class MainWindow(QMainWindow):
         elif not was_visible:
             for card in self._cards:
                 card.set_launch_enabled(False)
+
+    def _sync_empty_state(self) -> None:
+        self._empty_state_card.setVisible(not self._cards)
 
     def _make_launch_handler(
         self,
@@ -458,6 +532,7 @@ class MainWindow(QMainWindow):
             self._accounts = [
                 a for a in self._accounts if a["apikey"]["login"] != login
             ]
+            self._sync_empty_state()
             self._show_success(f"Removed {login}")
 
         def on_error(err: object) -> None:
@@ -528,18 +603,11 @@ class MainWindow(QMainWindow):
         new_logins: set[str] = {acc["apikey"]["login"] for acc in new_accounts}
 
         if current_logins != new_logins:
-            # Hide no-account label if we now have accounts
-            if self._no_account_label and new_accounts:
-                self._no_account_label.hide()
-                self._no_account_label = None
-
-            # Add new accounts
             for account in new_accounts:
                 login = account["apikey"]["login"]
                 if login not in current_logins:
                     self._add_card(account, new_interfaces)
 
-            # Remove departed accounts
             for login in current_logins - new_logins:
                 for card in self._cards[:]:
                     if card.login == login and not card.is_running:
@@ -549,6 +617,7 @@ class MainWindow(QMainWindow):
                         self._cards.remove(card)
 
             self._accounts = new_accounts
+            self._sync_empty_state()
 
         if new_interfaces != self._interfaces:
             for card in self._cards:

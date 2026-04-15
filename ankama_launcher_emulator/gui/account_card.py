@@ -1,18 +1,25 @@
 import psutil
-from PyQt6.QtCore import QTimer, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QLabel
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtWidgets import QGridLayout, QLabel, QVBoxLayout
 from qfluentwidgets import (
     BodyLabel,
+    CaptionLabel,
     CardWidget,
     ComboBox,
     PrimaryPushButton,
     PushButton,
 )
 
-from ankama_launcher_emulator.gui.consts import GREEN_HEXA
+from ankama_launcher_emulator.gui.consts import (
+    BORDER_HEXA,
+    GREEN_HEXA,
+    ORANGE_HEXA,
+    PANEL_ALT_HEXA,
+    PANEL_BG_HEXA,
+    TEXT_MUTED_HEXA,
+)
 from ankama_launcher_emulator.gui.utils import run_in_background
-from ankama_launcher_emulator.utils.proxy import verify_proxy_ip
-from ankama_launcher_emulator.utils.proxy_store import ProxyEntry, ProxyStore
+from ankama_launcher_emulator.utils.proxy_store import ProxyStore
 
 
 class AccountCard(CardWidget):
@@ -40,9 +47,30 @@ class AccountCard(CardWidget):
         self._monitor_timer.timeout.connect(self._check_process)
 
     def _setup_ui(self, all_interface: dict[str, tuple[str, str]]) -> None:
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(12)
+        layout = QGridLayout(self)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(10)
+
+        self.setStyleSheet(
+            "AccountCard {"
+            f"background-color: {PANEL_BG_HEXA};"
+            f"border: 1px solid {BORDER_HEXA};"
+            "border-radius: 18px;"
+            "}"
+            f"AccountCard CaptionLabel {{ color: {TEXT_MUTED_HEXA}; }}"
+            f"AccountCard ComboBox {{ background-color: {PANEL_ALT_HEXA}; }}"
+        )
+
+        self._login_label = BodyLabel(self.login)
+        self._meta_label = CaptionLabel("Stored account")
+        self._meta_label.setObjectName("accountMetaLabel")
+
+        identity_layout = QVBoxLayout()
+        identity_layout.setSpacing(2)
+        identity_layout.addWidget(self._login_label)
+        identity_layout.addWidget(self._meta_label)
+        layout.addLayout(identity_layout, 0, 0)
 
         self._status_dot = QLabel()
         self._status_dot.setFixedSize(10, 10)
@@ -50,41 +78,47 @@ class AccountCard(CardWidget):
             f"background-color: {GREEN_HEXA}; border-radius: 5px;"
         )
         self._status_dot.setVisible(False)
-        layout.addWidget(self._status_dot)
-
-        layout.addWidget(BodyLabel(self.login), 1)
+        layout.addWidget(
+            self._status_dot, 0, 5, alignment=Qt.AlignmentFlag.AlignCenter
+        )
 
         self._ip_combo = ComboBox()
         self._ip_combo.addItem("Auto", userData=None)
-        self._ip_combo.setFixedWidth(300)
+        self._ip_combo.setMinimumWidth(220)
 
         for ip_value, (display_name, public_ip) in all_interface.items():
             self._ip_combo.addItem(
                 f"{display_name}\t{public_ip}",
                 userData=ip_value,
             )
-        layout.addWidget(self._ip_combo)
+        layout.addWidget(self._ip_combo, 0, 1)
 
         self._proxy_combo = ComboBox()
-        self._proxy_combo.setFixedWidth(300)
+        self._proxy_combo.setMinimumWidth(220)
         self._refresh_proxy_combo()
         self._proxy_combo.currentIndexChanged.connect(self._on_proxy_changed)
-        layout.addWidget(self._proxy_combo)
+        layout.addWidget(self._proxy_combo, 0, 2)
 
         self._test_proxy_btn = PushButton("Test")
-        self._test_proxy_btn.setFixedWidth(50)
+        self._test_proxy_btn.setFixedWidth(68)
         self._test_proxy_btn.clicked.connect(self._on_test_proxy)
-        layout.addWidget(self._test_proxy_btn)
+        layout.addWidget(self._test_proxy_btn, 0, 3)
 
         self._launch_btn = PrimaryPushButton("Launch")
-        self._launch_btn.setFixedWidth(100)
+        self._launch_btn.setFixedWidth(110)
+        self._launch_btn.setStyleSheet(
+            f"PrimaryPushButton {{ background-color: {ORANGE_HEXA}; }}"
+        )
         self._launch_btn.clicked.connect(self._on_btn_clicked)
-        layout.addWidget(self._launch_btn)
+        layout.addWidget(self._launch_btn, 0, 4)
 
         self._remove_btn = PushButton("X")
         self._remove_btn.setFixedWidth(36)
         self._remove_btn.clicked.connect(self.remove_requested.emit)
-        layout.addWidget(self._remove_btn)
+        layout.addWidget(self._remove_btn, 0, 6)
+        layout.setColumnStretch(0, 2)
+        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(2, 1)
 
     def _refresh_proxy_combo(self) -> None:
         current_pid = self._proxy_combo.currentData()
@@ -175,6 +209,7 @@ class AccountCard(CardWidget):
         self._launch_btn.setText("Stop")
         self._launch_btn.setEnabled(True)
         self._status_dot.setVisible(True)
+        self._meta_label.setText("Running")
         self._monitor_timer.start()
 
     def _check_process(self) -> None:
@@ -194,6 +229,7 @@ class AccountCard(CardWidget):
         self._launch_btn.setText("Launch")
         self._launch_btn.setEnabled(True)
         self._status_dot.setVisible(False)
+        self._meta_label.setText("Stored account")
 
     def set_launch_enabled(self, enabled: bool) -> None:
         self._launch_btn.setEnabled(enabled)
