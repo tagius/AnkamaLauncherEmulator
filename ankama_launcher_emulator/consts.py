@@ -2,6 +2,7 @@ import json
 import os
 import re
 import shutil
+import sys
 from pathlib import Path
 
 if os.name == "nt":
@@ -69,7 +70,8 @@ os.makedirs(app_config_dir, exist_ok=True)
 
 APP_CONFIG_PATH = os.path.join(app_config_dir, "config.json")
 
-RESOURCES = Path(__file__).parent.parent / "resources"
+_BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent.parent))
+RESOURCES = _BASE_DIR / "resources"
 
 ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 

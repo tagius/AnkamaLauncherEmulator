@@ -298,21 +298,33 @@ class MainWindow(QMainWindow):
         card: AccountCard,
         set_panel_status: Callable[[str], None],
     ) -> None:
-        # Step 1: PKCE login via embedded browser (GUI thread)
-        # Lazy import — QtWebEngine DLLs only loaded when Shield triggers
-        from ankama_launcher_emulator.gui.shield_browser_dialog import (
-            ShieldBrowserDialog,
-        )
+        # Step 1: PKCE login via system browser (GUI thread)
+        import webbrowser
 
         pkce = PkceSession(game_id=err.game_id, proxy_url=err.proxy_url)
-        browser = ShieldBrowserDialog(pkce.auth_url, err.login, parent=self)
-        if browser.exec() != QDialog.DialogCode.Accepted:
+        webbrowser.open(pkce.auth_url)
+
+        # Browser redirects to zaap://login?code=XXX which fails to navigate.
+        # User copies the code from the URL bar and pastes it here.
+        dialog = ShieldCodeDialog(
+            err.login,
+            parent=self,
+            message=(
+                f"A browser window opened for {err.login}.\n\n"
+                "1. Log in with your Ankama credentials.\n"
+                "2. After login, your browser will try to open zaap://login?code=...\n"
+                "3. Copy the 'code' value from the URL bar.\n"
+                "4. Paste it below."
+            ),
+            placeholder="Paste authorization code from URL",
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             card.set_launch_enabled(True)
             return
 
-        auth_code = browser.get_code()
+        auth_code = dialog.get_code()
         if not auth_code:
-            self._show_error("No authorization code received")
+            self._show_error("No authorization code provided")
             card.set_launch_enabled(True)
             return
 

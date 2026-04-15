@@ -9,28 +9,40 @@ class ShieldCodeDialog(QDialog):
     They enter it here, we validate via HAAPI through the proxy.
     """
 
-    def __init__(self, login: str, parent=None):
+    def __init__(
+        self,
+        login: str,
+        parent=None,
+        message: str | None = None,
+        placeholder: str | None = None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("Shield Verification")
         self.setMinimumWidth(400)
         self._code: str | None = None
-        self._setup_ui(login)
+        self._setup_ui(login, message, placeholder)
 
-    def _setup_ui(self, login: str) -> None:
+    def _setup_ui(
+        self,
+        login: str,
+        message: str | None = None,
+        placeholder: str | None = None,
+    ) -> None:
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
         layout.setContentsMargins(20, 20, 20, 20)
 
-        info = BodyLabel(
+        default_msg = (
             f"New proxy IP detected for {login}.\n\n"
             "Ankama sent a security code to your email.\n"
             "Enter it below to authorize this proxy."
         )
+        info = BodyLabel(message or default_msg)
         info.setWordWrap(True)
         layout.addWidget(info)
 
         self._code_input = LineEdit()
-        self._code_input.setPlaceholderText("Security code from email")
+        self._code_input.setPlaceholderText(placeholder or "Security code from email")
         self._code_input.returnPressed.connect(self._on_submit)
         layout.addWidget(self._code_input)
 
