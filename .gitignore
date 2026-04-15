@@ -19,3 +19,10 @@ GEMINI.md
 
 # Added by code-review-graph
 .code-review-graph/
+
+resources/Retro/
+resources/dofus-multi-master/
+resources/jsc_decompiled/
+resources/resolved/
+resources/webcrack_d1el/
+resources/preloader.js
