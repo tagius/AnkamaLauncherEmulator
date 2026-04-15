@@ -52,7 +52,6 @@ from ankama_launcher_emulator.gui.star_dialog import (
 )
 from ankama_launcher_emulator.gui.utils import run_in_background
 from ankama_launcher_emulator.haapi.account_manager import remove_account
-from ankama_launcher_emulator.haapi.pkce_auth import refresh_api_key_for_proxy
 from ankama_launcher_emulator.haapi.shield import (
     ShieldRequired,
     check_proxy_needs_shield,
@@ -465,9 +464,6 @@ class MainWindow(QMainWindow):
                 on_progress("Verifying proxy...")
             verify_proxy_ip(proxy_url)
             self._check_shield(login, proxy_url, on_progress)
-            if on_progress:
-                on_progress("Refreshing token for proxy...")
-            refresh_api_key_for_proxy(login, proxy_url)
         return self._server.launch_dofus(
             login,
             proxy_listener=proxy_listener,
@@ -489,9 +485,6 @@ class MainWindow(QMainWindow):
                 on_progress("Verifying proxy...")
             verify_proxy_ip(proxy_url)
             self._check_shield(login, proxy_url, on_progress)
-            if on_progress:
-                on_progress("Refreshing token for proxy...")
-            refresh_api_key_for_proxy(login, proxy_url)
         return self._server.launch_retro(
             login,
             proxy_url=proxy_url,

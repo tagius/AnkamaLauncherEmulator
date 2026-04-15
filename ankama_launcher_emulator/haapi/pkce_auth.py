@@ -27,7 +27,7 @@ logger = logging.getLogger()
 
 AUTH_BASE = "https://auth.ankama.com"
 LOCAL_REDIRECT_URI = "http://127.0.0.1:9001/authorized"
-ZAAP_CLIENT_ID = 102  # Always 102 for PKCE auth (launcher ID, not game ID)
+ZAAP_CLIENT_ID = 102  # Launcher PKCE client
 CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
 
 
@@ -43,12 +43,15 @@ def create_code_challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).decode("utf-8").rstrip("=")
 
 
-def build_auth_url(code_challenge: str) -> str:
+def build_auth_url(
+    code_challenge: str,
+    redirect_uri: str = LOCAL_REDIRECT_URI,
+) -> str:
     """Build the auth URL the user opens in their browser."""
     return (
         f"{AUTH_BASE}/login/ankama"
         f"?code_challenge={code_challenge}"
-        f"&redirect_uri={LOCAL_REDIRECT_URI}"
+        f"&redirect_uri={redirect_uri}"
         f"&client_id={ZAAP_CLIENT_ID}"
         f"&direct=true"
         f"&origin_tracker=https://www.ankama-launcher.com/launcher"
@@ -58,6 +61,7 @@ def build_auth_url(code_challenge: str) -> str:
 def exchange_code_for_token(
     code: str,
     code_verifier: str,
+    redirect_uri: str = LOCAL_REDIRECT_URI,
 ) -> dict:
     """Exchange authorization code for access_token + refresh_token.
 
@@ -67,7 +71,7 @@ def exchange_code_for_token(
     payload = (
         f"grant_type=authorization_code"
         f"&code={code}"
-        f"&redirect_uri={LOCAL_REDIRECT_URI}"
+        f"&redirect_uri={redirect_uri}"
         f"&client_id={ZAAP_CLIENT_ID}"
         f"&code_verifier={code_verifier}"
     )
@@ -160,6 +164,25 @@ class PkceSession:
 
 ZAAP_REDIRECT_URI = "zaap://login"
 
+
+class ZaapPkceSession:
+    """PKCE session that completes via zaap://login in an embedded browser."""
+
+    def __init__(self):
+        self.code_verifier = generate_code_verifier()
+        self.code_challenge = create_code_challenge(self.code_verifier)
+        self.auth_url = build_auth_url(
+            self.code_challenge,
+            redirect_uri=ZAAP_REDIRECT_URI,
+        )
+
+    def exchange(self, code: str) -> dict:
+        return exchange_code_for_token(
+            code=code,
+            code_verifier=self.code_verifier,
+            redirect_uri=ZAAP_REDIRECT_URI,
+        )
+
 _FORM_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -175,6 +198,21 @@ _FORM_HEADERS = {
 }
 
 HAAPI_ACCOUNT_URL = "https://haapi.ankama.com/json/Ankama/v5/Account/Account"
+
+
+def fetch_account_profile(access_token: str, proxy_url: str | None = None) -> dict:
+    session = requests.Session()
+    if proxy_url:
+        h_url = to_socks5h(proxy_url)
+        session.proxies = {"http": h_url, "https": h_url}
+
+    acct_resp = session.get(
+        HAAPI_ACCOUNT_URL,
+        headers={"APIKEY": access_token},
+        verify=False,
+    )
+    acct_resp.raise_for_status()
+    return acct_resp.json()
 
 
 def programmatic_pkce_login(
@@ -312,13 +350,7 @@ def programmatic_pkce_login(
 
     # Step 6: Get account info
     progress("Fetching account info...")
-    acct_resp = session.get(
-        HAAPI_ACCOUNT_URL,
-        headers={"APIKEY": access_token},
-        verify=False,
-    )
-    acct_resp.raise_for_status()
-    account = acct_resp.json()
+    account = fetch_account_profile(access_token, proxy_url=proxy_url)
 
     if not account.get("id"):
         raise RuntimeError("Failed to get account info")

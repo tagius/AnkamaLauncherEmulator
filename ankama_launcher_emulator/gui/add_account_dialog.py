@@ -27,7 +27,11 @@ from ankama_launcher_emulator.decrypter.device import Device
 from ankama_launcher_emulator.gui.shield_dialog import ShieldCodeDialog
 from ankama_launcher_emulator.gui.utils import run_in_background
 from ankama_launcher_emulator.haapi.account_meta import AccountMeta
-from ankama_launcher_emulator.haapi.pkce_auth import programmatic_pkce_login
+from ankama_launcher_emulator.haapi.pkce_auth import (
+    ZaapPkceSession,
+    fetch_account_profile,
+    programmatic_pkce_login,
+)
 from ankama_launcher_emulator.haapi.shield import (
     request_security_code,
     store_shield_certificate,
@@ -42,6 +46,15 @@ def _make_random_hm(length: int = 32) -> str:
     """Generate random hex string (matching dofus-multi makeid)."""
     chars = "abcdef0123456789"
     return "".join(chars[int(random.random() * len(chars))] for _ in range(length))
+
+
+def _should_use_browser_login(err: object) -> bool:
+    message = str(err).lower()
+    return (
+        "failed to extract csrf state" in message
+        or "request blocked" in message
+        or "cloudfront" in message
+    )
 
 
 class AddAccountDialog(QDialog):
@@ -119,6 +132,60 @@ class AddAccountDialog(QDialog):
             return programmatic_pkce_login(
                 login, password, proxy_url=proxy_url, on_progress=self._set_status
             )
+
+        def on_success(result: object) -> None:
+            data = dict(result)  # type: ignore[arg-type]
+            self._on_login_success(data, login, alias, proxy_url)
+
+        def on_error(err: object) -> None:
+            if _should_use_browser_login(err):
+                self._start_browser_login(login, alias, proxy_url)
+                return
+            self._add_btn.setEnabled(True)
+            self._status_label.setText(f"Error: {err}")
+
+        run_in_background(task, on_success=on_success, on_error=on_error, parent=self)
+
+    def _start_browser_login(
+        self,
+        login: str,
+        alias: str | None,
+        proxy_url: str | None,
+    ) -> None:
+        from ankama_launcher_emulator.gui.shield_browser_dialog import (
+            ShieldBrowserDialog,
+        )
+
+        self._status_label.setText("Headless login blocked, opening browser...")
+        session = ZaapPkceSession()
+        dialog = ShieldBrowserDialog(session.auth_url, login, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            self._add_btn.setEnabled(True)
+            self._status_label.setText("Browser login cancelled")
+            return
+
+        code = dialog.get_code()
+        if not code:
+            self._add_btn.setEnabled(True)
+            self._status_label.setText("Browser login cancelled")
+            return
+
+        self._status_label.setText("Completing browser login...")
+
+        def task(_on_progress: object) -> dict:
+            tokens = session.exchange(code)
+            account = fetch_account_profile(tokens["access_token"])
+            if not account.get("id"):
+                raise RuntimeError("Failed to get account info")
+            return {
+                "access_token": tokens["access_token"],
+                "refresh_token": tokens.get("refresh_token"),
+                "account_id": account["id"],
+                "login": account.get("login", login),
+                "nickname": account.get("nickname", ""),
+                "security": account.get("security", []),
+                "proxy_url": proxy_url,
+            }
 
         def on_success(result: object) -> None:
             data = dict(result)  # type: ignore[arg-type]
