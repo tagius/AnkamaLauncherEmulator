@@ -43,10 +43,8 @@ from ankama_launcher_emulator.gui.star_dialog import (
     has_shown_star_repo,
 )
 from ankama_launcher_emulator.gui.utils import run_in_background
-from ankama_launcher_emulator.haapi.pkce_auth import PkceSession
 from ankama_launcher_emulator.haapi.shield import (
     ShieldRequired,
-    account_needs_shield,
     check_proxy_needs_shield,
     request_security_code,
     store_shield_certificate,
@@ -253,54 +251,35 @@ class MainWindow(QMainWindow):
         launch: Callable,
         card: AccountCard,
     ) -> None:
-        pkce = PkceSession()
-        self._set_panel_status("Opening browser for authentication...")
+        """Handle Shield for existing accounts using stored API key directly.
 
-        def pkce_flow(on_progress: Callable) -> dict:
-            on_progress("Waiting for browser login...")
-            auth_code = pkce.run_and_wait_for_code(timeout=120)
-            if not auth_code:
-                raise RuntimeError("No authorization code received (timeout)")
-            on_progress("Exchanging authorization code...")
-            tokens = pkce.exchange(auth_code)
-            fresh_key = tokens["access_token"]
-            logger.info("[SHIELD] PKCE exchange successful")
+        No browser PKCE needed — use the stored key for SecurityCode/ValidateCode.
+        auth.ankama.com/token rejects redirect_uri=http://127.0.0.1:... (not registered
+        for client_id=102, only zaap://login is). So skip /token entirely.
+        """
+        self._set_panel_status("Requesting Shield code via email...")
 
-            on_progress("Checking account security...")
-            if not account_needs_shield(fresh_key):
-                logger.info("[SHIELD] Account does not need Shield, retrying launch")
-                on_progress("Launching...")
-                return {
-                    "needs_shield": False,
-                    "fresh_key": fresh_key,
-                    "pid": launch(
-                        err.login, None, err.proxy_url, on_progress=on_progress
-                    ),
-                }
-
+        def request_code(on_progress: Callable) -> str:
+            api_key = CryptoHelper.getStoredApiKey(err.login)["apikey"]["key"]
             on_progress("Requesting security code via email...")
-            request_security_code(fresh_key)
+            request_security_code(api_key)
             logger.info("[SHIELD] Security code requested via email")
-            return {"needs_shield": True, "fresh_key": fresh_key}
+            return api_key
 
-        def on_pkce_done(result: object) -> None:
-            data = cast(dict, result)
-            if not data["needs_shield"]:
-                self._show_success(f"Game launch for {err.login}")
-                self._set_panel_status("")
-                card.set_running(data["pid"])
-                return
-            self._show_shield_code_dialog(err, data["fresh_key"], launch, card)
+        def on_code_requested(result: object) -> None:
+            api_key = str(result)
+            self._set_panel_status("")
+            self._show_shield_code_dialog(err, api_key, launch, card)
 
-        def on_pkce_error(exc: object) -> None:
-            self._show_error(f"Shield auth failed: {exc}")
+        def on_error(exc: object) -> None:
+            self._show_error(f"Shield error: {exc}")
             self._set_panel_status("")
             card.set_launch_enabled(True)
 
         run_in_background(
-            pkce_flow,
-            on_success=on_pkce_done,
-            on_error=on_pkce_error,
+            request_code,
+            on_success=on_code_requested,
+            on_error=on_error,
             on_progress=self._set_panel_status,
             parent=self,
         )
@@ -308,7 +287,7 @@ class MainWindow(QMainWindow):
     def _show_shield_code_dialog(
         self,
         err: ShieldRequired,
-        fresh_key: str,
+        api_key: str,
         launch: Callable,
         card: AccountCard,
     ) -> None:
@@ -331,7 +310,7 @@ class MainWindow(QMainWindow):
 
         def validate_and_launch(on_progress: Callable) -> int:
             on_progress("Validating security code...")
-            cert_data = validate_security_code(fresh_key, code)
+            cert_data = validate_security_code(api_key, code)
             logger.info("[SHIELD] ValidateCode success")
             on_progress("Storing certificate...")
             store_shield_certificate(err.login, cert_data)
