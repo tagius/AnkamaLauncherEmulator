@@ -75,32 +75,30 @@ def request_security_code(
 ) -> dict:
     """Request Ankama to send a security code via email.
 
-    Tries multiple request body formats since exact API is undocumented.
+    Tries GET with query params (API rejects POST with 405).
     Returns the response body dict on success.
     Raises on failure with full response details for debugging.
     """
     session = _make_proxy_session(proxy_url)
     headers = _zaap_headers(api_key)
 
-    # Try JSON body first (most likely for modern API)
     attempts = [
-        {"json": {"transportType": transport_type}},
-        {"json": {"transport_type": transport_type}},
-        {"data": f"transportType={transport_type}"},
-        {"json": {}},
+        {"transportType": transport_type},
+        {"transport_type": transport_type},
+        {},
     ]
 
     last_response = None
-    for kwargs in attempts:
-        response = session.post(
+    for params in attempts:
+        response = session.get(
             ANKAMA_SHIELD_SECURITY_CODE,
+            params=params,
             headers=headers,
             verify=False,
-            **kwargs,
         )
         last_response = response
         logger.info(
-            f"[SHIELD] SecurityCode attempt {kwargs}: "
+            f"[SHIELD] SecurityCode attempt params={params}: "
             f"status={response.status_code} body={response.text[:500]}"
         )
         if response.status_code == 200:
@@ -125,7 +123,7 @@ def validate_security_code(
 ) -> dict:
     """Validate the security code the user received via email.
 
-    Tries multiple request body formats.
+    Tries GET with query params (API rejects POST with 405).
     Returns response body dict on success.
     Raises on failure with full response details.
     """
@@ -133,23 +131,21 @@ def validate_security_code(
     headers = _zaap_headers(api_key)
 
     attempts = [
-        {"json": {"code": code}},
-        {"json": {"validationCode": code}},
-        {"data": f"code={code}"},
-        {"data": f"validationCode={code}"},
+        {"code": code},
+        {"validationCode": code},
     ]
 
     last_response = None
-    for kwargs in attempts:
-        response = session.post(
+    for params in attempts:
+        response = session.get(
             ANKAMA_SHIELD_VALIDATE_CODE,
+            params=params,
             headers=headers,
             verify=False,
-            **kwargs,
         )
         last_response = response
         logger.info(
-            f"[SHIELD] ValidateCode attempt {kwargs}: "
+            f"[SHIELD] ValidateCode attempt params={params}: "
             f"status={response.status_code} body={response.text[:500]}"
         )
         if response.status_code == 200:
