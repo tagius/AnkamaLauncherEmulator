@@ -301,7 +301,7 @@ class MainWindow(QMainWindow):
         set_panel_status: Callable[[str], None],
     ) -> None:
         # Step 1: PKCE login with local callback server (background thread)
-        pkce = PkceSession(game_id=err.game_id, proxy_url=err.proxy_url)
+        pkce = PkceSession(game_id=err.game_id)
         set_panel_status("Opening browser for authentication...")
 
         def pkce_flow(on_progress: Callable) -> dict:

@@ -21,7 +21,7 @@ from urllib.parse import urlparse, parse_qs
 import requests
 
 from ankama_launcher_emulator.haapi.zaap_version import ZAAP_VERSION
-from ankama_launcher_emulator.utils.proxy import to_socks5h
+
 
 logger = logging.getLogger()
 
@@ -58,18 +58,12 @@ def build_auth_url(code_challenge: str) -> str:
 def exchange_code_for_token(
     code: str,
     code_verifier: str,
-    proxy_url: str | None = None,
 ) -> dict:
     """Exchange authorization code for access_token + refresh_token.
 
-    Returns dict with 'access_token' and 'refresh_token'.
-    Raises on failure.
+    Token exchange always goes direct (no proxy) — auth.ankama.com
+    blocks proxy IPs on the /token endpoint.
     """
-    session = requests.Session()
-    if proxy_url:
-        h_url = to_socks5h(proxy_url)
-        session.proxies = {"http": h_url, "https": h_url}
-
     payload = (
         f"grant_type=authorization_code"
         f"&code={code}"
@@ -78,7 +72,7 @@ def exchange_code_for_token(
         f"&code_verifier={code_verifier}"
     )
 
-    response = session.post(
+    response = requests.post(
         f"{AUTH_BASE}/token",
         headers={
             "User-Agent": f"Zaap {ZAAP_VERSION}",
@@ -123,9 +117,8 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 class PkceSession:
     """Holds state for one PKCE auth attempt with local callback server."""
 
-    def __init__(self, game_id: int = 102, proxy_url: str | None = None):
+    def __init__(self, game_id: int = 102):
         self.game_id = game_id
-        self.proxy_url = proxy_url
         self.code_verifier = generate_code_verifier()
         self.code_challenge = create_code_challenge(self.code_verifier)
         self.auth_url = build_auth_url(self.code_challenge)
@@ -160,5 +153,4 @@ class PkceSession:
         return exchange_code_for_token(
             code=code,
             code_verifier=self.code_verifier,
-            proxy_url=self.proxy_url,
         )
