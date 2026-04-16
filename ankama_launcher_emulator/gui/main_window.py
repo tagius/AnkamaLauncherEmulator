@@ -1,4 +1,5 @@
 import logging
+import importlib
 from typing import Callable, cast
 
 from PyQt6.QtCore import Qt, QTimer
@@ -52,6 +53,14 @@ from ankama_launcher_emulator.gui.star_dialog import (
 )
 from ankama_launcher_emulator.gui.utils import run_in_background
 from ankama_launcher_emulator.haapi.account_manager import remove_account
+from ankama_launcher_emulator.haapi.account_meta import AccountMeta
+from ankama_launcher_emulator.haapi.account_persistence import (
+    persist_managed_account,
+)
+from ankama_launcher_emulator.haapi.pkce_auth import (
+    ZaapPkceSession,
+    complete_embedded_login,
+)
 from ankama_launcher_emulator.haapi.shield import (
     ShieldRequired,
     ShieldRecoveryRequired,
@@ -68,6 +77,13 @@ from ankama_launcher_emulator.utils.proxy_store import ProxyStore
 logger = logging.getLogger()
 
 
+def _load_embedded_auth_dialog_class():
+    module = importlib.import_module(
+        "ankama_launcher_emulator.gui.embedded_auth_browser_dialog"
+    )
+    return module.EmbeddedAuthBrowserDialog
+
+
 class MainWindow(QMainWindow):
     def __init__(
         self,
@@ -81,6 +97,7 @@ class MainWindow(QMainWindow):
         self._interfaces: dict[str, tuple[str, str]] = all_interface
         self._proxy_store = ProxyStore()
         self._cards: list[AccountCard] = []
+        self._launch_contexts: dict[str, dict[str, object]] = {}
         self._current_game_is_dofus3: bool = DOFUS_INSTALLED or not RETRO_INSTALLED
         self._is_refreshing = False
         server_handler = getattr(self._server, "handler", None)
@@ -304,6 +321,13 @@ class MainWindow(QMainWindow):
         def handler(iface: object, proxy_id: object) -> None:
             launch = self._current_launch_fn()
             proxy_url = self._proxy_store.get_proxy_url(login) if proxy_id else None
+            interface_ip = cast(str | None, iface)
+            self._launch_contexts[login] = {
+                "launch": launch,
+                "card": card,
+                "interface_ip": interface_ip,
+                "proxy_url": proxy_url,
+            }
 
             def on_success(result: object) -> None:
                 self._show_success(f"Game launch for {login}")
@@ -326,7 +350,7 @@ class MainWindow(QMainWindow):
             run_in_background(
                 lambda on_progress: launch(
                     login,
-                    cast(str | None, iface),
+                    interface_ip,
                     proxy_url,
                     on_progress=on_progress,
                 ),
@@ -383,25 +407,143 @@ class MainWindow(QMainWindow):
         launch: Callable,
         card: AccountCard,
     ) -> None:
-        """Minimal recovery hook for certificate-backed Shield failures."""
-        del launch
-        self._show_error(f"Shield recovery required for {err.login}")
-        self._set_panel_status("")
-        card.set_launch_enabled(True)
+        self._set_panel_status("Stored certificate rejected, re-authentication required...")
+        try:
+            dialog_class = _load_embedded_auth_dialog_class()
+            session = ZaapPkceSession()
+            dialog = dialog_class(session.auth_url, err.login, parent=self)
+        except (ImportError, RuntimeError, OSError) as exc:
+            self._show_error(f"Embedded auth dialog unavailable: {exc}")
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+            return
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+            return
+
+        auth_code = dialog.get_code()
+        if not auth_code:
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+            return
+
+        def reauthenticate(on_progress: Callable[[str], None]) -> dict:
+            on_progress("Signing in again...")
+            data = complete_embedded_login(auth_code, session, err.login)
+            on_progress("Requesting security code via email...")
+            request_security_code(data["access_token"])
+            return data
+
+        def on_reauthenticated(result: object) -> None:
+            self._set_panel_status("")
+            data = dict(result)  # type: ignore[arg-type]
+            self._show_shield_recovery_dialog(err.login, data, launch, card)
+
+        def on_error(exc: object) -> None:
+            self._show_error(f"Shield recovery failed: {exc}")
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+
+        run_in_background(
+            reauthenticate,
+            on_success=on_reauthenticated,
+            on_error=on_error,
+            on_progress=self._set_panel_status,
+            parent=self,
+        )
 
     def _on_server_shield_recovery(self, login: str) -> None:
         def route_recovery() -> None:
-            card = self._find_card(login)
+            context = self._launch_contexts.get(login)
+            launch = cast(Callable | None, context.get("launch")) if context else None
+            card = cast(AccountCard | None, context.get("card")) if context else None
+            if launch is None:
+                launch = self._current_launch_fn()
+            if card is None:
+                card = self._find_card(login)
             if card is None:
                 self._show_error(f"Shield recovery required for {login}")
                 return
             self._handle_shield_recovery(
                 ShieldRecoveryRequired(login),
-                self._current_launch_fn(),
+                launch,
                 card,
             )
 
         QTimer.singleShot(0, route_recovery)
+
+    def _show_shield_recovery_dialog(
+        self,
+        login: str,
+        data: dict,
+        launch: Callable,
+        card: AccountCard,
+    ) -> None:
+        dialog = ShieldCodeDialog(
+            login,
+            parent=self,
+            message=(
+                f"A security code was sent to the email for {login}.\n"
+                "Enter the code below to authorize this connection again."
+            ),
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            card.set_launch_enabled(True)
+            return
+
+        code = dialog.get_code()
+        if not code:
+            card.set_launch_enabled(True)
+            return
+
+        def validate_and_launch(on_progress: Callable[[str], None]) -> int:
+            context = self._launch_contexts.get(login, {})
+            interface_ip = cast(str | None, context.get("interface_ip"))
+            proxy_url = cast(str | None, context.get("proxy_url"))
+            on_progress("Validating security code...")
+            cert_data = validate_security_code(data["access_token"], code)
+            on_progress("Storing refreshed certificate...")
+            store_shield_certificate(login, cert_data)
+            alias = cast(str | None, (AccountMeta().get(login) or {}).get("alias"))
+            if alias is None:
+                alias = cast(str | None, data.get("nickname")) or None
+            persist_managed_account(
+                login,
+                data["account_id"],
+                data["access_token"],
+                data.get("refresh_token"),
+                alias=alias,
+                hm1=None,
+            )
+            if proxy_url:
+                self._proxy_store.save_validated(login, proxy_url)
+            on_progress("Retrying launch...")
+            return launch(
+                login,
+                interface_ip,
+                proxy_url,
+                on_progress=on_progress,
+            )
+
+        def on_success(result: object) -> None:
+            self._show_success(f"Game launch for {login}")
+            self._set_panel_status("")
+            card.set_running(int(result))  # type: ignore[arg-type]
+
+        def on_error(retry_err: object) -> None:
+            self._show_error(str(retry_err))
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+
+        run_in_background(
+            validate_and_launch,
+            on_success=on_success,
+            on_error=on_error,
+            on_progress=self._set_panel_status,
+            parent=self,
+        )
 
     def _show_shield_code_dialog(
         self,

@@ -183,6 +183,21 @@ class ZaapPkceSession:
             redirect_uri=ZAAP_REDIRECT_URI,
         )
 
+
+def complete_embedded_login(code: str, session: ZaapPkceSession, login: str) -> dict:
+    tokens = session.exchange(code)
+    account = fetch_account_profile(tokens["access_token"])
+    if not account.get("id"):
+        raise RuntimeError("Failed to get account info")
+    return {
+        "access_token": tokens["access_token"],
+        "refresh_token": tokens.get("refresh_token"),
+        "account_id": account["id"],
+        "login": account.get("login", login),
+        "nickname": account.get("nickname", ""),
+        "security": account.get("security", []),
+    }
+
 _FORM_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",

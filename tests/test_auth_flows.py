@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtWidgets import QDialog
+
 from ankama_launcher_emulator.gui.add_account_dialog import AddAccountDialog
 from ankama_launcher_emulator.gui.app import ensure_app
 from ankama_launcher_emulator.gui.main_window import MainWindow
@@ -214,6 +216,131 @@ class AuthFlowTests(unittest.TestCase):
             {"source": "managed"},
         )
         save.assert_called_once()
+
+    @patch("ankama_launcher_emulator.haapi.pkce_auth.fetch_account_profile")
+    def test_complete_embedded_login_returns_launcher_account_payload(
+        self,
+        fetch_account_profile,
+    ):
+        from ankama_launcher_emulator.haapi.pkce_auth import complete_embedded_login
+
+        session = MagicMock()
+        session.exchange.return_value = {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+        }
+        fetch_account_profile.return_value = {
+            "id": 9,
+            "login": "demo@example.com",
+            "nickname": "Demo",
+            "security": ["SHIELD"],
+        }
+
+        data = complete_embedded_login("auth-code", session, "demo@example.com")
+
+        session.exchange.assert_called_once_with("auth-code")
+        fetch_account_profile.assert_called_once_with("access-token")
+        self.assertEqual(
+            data,
+            {
+                "access_token": "access-token",
+                "refresh_token": "refresh-token",
+                "account_id": 9,
+                "login": "demo@example.com",
+                "nickname": "Demo",
+                "security": ["SHIELD"],
+            },
+        )
+
+    @patch("ankama_launcher_emulator.gui.main_window.run_in_background")
+    @patch("ankama_launcher_emulator.gui.main_window.persist_managed_account")
+    @patch("ankama_launcher_emulator.gui.main_window.store_shield_certificate")
+    @patch("ankama_launcher_emulator.gui.main_window.validate_security_code")
+    @patch("ankama_launcher_emulator.gui.main_window.request_security_code")
+    @patch("ankama_launcher_emulator.gui.main_window.complete_embedded_login")
+    @patch("ankama_launcher_emulator.gui.main_window.ShieldCodeDialog")
+    @patch("ankama_launcher_emulator.gui.main_window._load_embedded_auth_dialog_class")
+    def test_handle_shield_recovery_reauthenticates_and_retries_launch(
+        self,
+        load_dialog_class,
+        shield_dialog_cls,
+        complete_embedded_login,
+        request_security_code,
+        validate_security_code,
+        store_shield_certificate,
+        persist_managed_account,
+        run_in_background,
+    ):
+        server = _ServerWithHandler()
+        window = MainWindow(
+            server,
+            [{"apikey": {"login": "demo@example.com"}}],
+            {},
+        )
+        launch = MagicMock(return_value=1234)
+        card = MagicMock()
+        window._launch_contexts["demo@example.com"] = {
+            "launch": launch,
+            "card": card,
+            "interface_ip": None,
+            "proxy_url": "socks5://127.0.0.1:9050",
+        }
+        window._proxy_store = MagicMock()
+
+        browser_dialog = MagicMock()
+        browser_dialog.exec.return_value = QDialog.DialogCode.Accepted
+        browser_dialog.get_code.return_value = "auth-code"
+        load_dialog_class.return_value.return_value = browser_dialog
+
+        shield_dialog = MagicMock()
+        shield_dialog.exec.return_value = QDialog.DialogCode.Accepted
+        shield_dialog.get_code.return_value = "654321"
+        shield_dialog_cls.return_value = shield_dialog
+
+        complete_embedded_login.return_value = {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "account_id": 7,
+            "login": "demo@example.com",
+            "nickname": "Demo",
+            "security": ["SHIELD"],
+        }
+        validate_security_code.return_value = {"id": 42, "encodedCertificate": "abc"}
+
+        def run_task(task, on_success=None, on_error=None, on_progress=None, parent=None):
+            del on_error, on_progress, parent
+            result = task(lambda _msg: None)
+            if on_success is not None:
+                on_success(result)
+
+        run_in_background.side_effect = run_task
+
+        window._handle_shield_recovery(
+            ShieldRecoveryRequired("demo@example.com"),
+            launch,
+            card,
+        )
+
+        complete_embedded_login.assert_called_once()
+        request_security_code.assert_called_once_with("access-token")
+        validate_security_code.assert_called_once_with("access-token", "654321")
+        store_shield_certificate.assert_called_once_with(
+            "demo@example.com",
+            {"id": 42, "encodedCertificate": "abc"},
+        )
+        persist_managed_account.assert_called_once_with(
+            "demo@example.com",
+            7,
+            "access-token",
+            "refresh-token",
+            alias="Demo",
+            hm1=None,
+        )
+        window._proxy_store.save_validated.assert_called_once_with(
+            "demo@example.com",
+            "socks5://127.0.0.1:9050",
+        )
+        launch.assert_called_once()
 
     def test_create_token_403_with_certificate_raises_shield_recovery_required(self):
         haapi = Haapi(
