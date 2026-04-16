@@ -49,9 +49,9 @@ def _should_use_browser_login(err: object) -> bool:
 
 def _load_embedded_auth_dialog_class():
     module = importlib.import_module(
-        "ankama_launcher_emulator.gui.shield_browser_dialog"
+        "ankama_launcher_emulator.gui.embedded_auth_browser_dialog"
     )
-    return module.ShieldBrowserDialog
+    return module.EmbeddedAuthBrowserDialog
 
 
 class AddAccountDialog(QDialog):

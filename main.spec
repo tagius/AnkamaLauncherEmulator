@@ -13,6 +13,8 @@ a = Analysis(
         ('resources/app.ico', 'resources'),
     ],
     hiddenimports=[
+        'ankama_launcher_emulator.gui.embedded_auth_browser_dialog',
+        'ankama_launcher_emulator.gui.shield_browser_dialog',
         'PyQt6.QtWebEngineCore',
         'PyQt6.QtWebEngineWidgets',
     ],

@@ -150,6 +150,26 @@ class AuthFlowTests(unittest.TestCase):
 
         self.assertIs(ShieldBrowserDialog, EmbeddedAuthBrowserDialog)
 
+    @patch("ankama_launcher_emulator.gui.add_account_dialog.importlib.import_module")
+    def test_add_account_loader_imports_embedded_auth_browser_module(
+        self,
+        import_module,
+    ):
+        from ankama_launcher_emulator.gui.add_account_dialog import (
+            _load_embedded_auth_dialog_class,
+        )
+
+        module = MagicMock()
+        module.EmbeddedAuthBrowserDialog = object()
+        import_module.return_value = module
+
+        dialog_class = _load_embedded_auth_dialog_class()
+
+        import_module.assert_called_once_with(
+            "ankama_launcher_emulator.gui.embedded_auth_browser_dialog"
+        )
+        self.assertIs(dialog_class, module.EmbeddedAuthBrowserDialog)
+
     @patch("ankama_launcher_emulator.gui.add_account_dialog.run_in_background")
     @patch("ankama_launcher_emulator.gui.add_account_dialog.persist_managed_account")
     @patch("ankama_launcher_emulator.gui.add_account_dialog.store_shield_certificate")
