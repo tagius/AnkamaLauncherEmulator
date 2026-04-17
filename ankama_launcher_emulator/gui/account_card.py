@@ -233,6 +233,10 @@ class AccountCard(CardWidget):
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
 
+    def stop_process(self) -> None:
+        self._stop_process()
+        self._on_process_ended()
+
     def set_running(self, pid: int) -> None:
         self._current_pid = pid
         self._launch_btn.setText("Stop")

@@ -43,6 +43,14 @@ class ShieldRecoveryRequired(Exception):
         super().__init__(f"Shield recovery required for {login}")
 
 
+class SessionExpired(Exception):
+    """Raised when the stored API key has been invalidated (e.g. signed on elsewhere)."""
+
+    def __init__(self, login: str):
+        self.login = login
+        super().__init__(f"Session expired for {login}")
+
+
 def _make_session(proxy_url: str | None = None) -> requests.Session:
     session = requests.Session()
     if proxy_url:

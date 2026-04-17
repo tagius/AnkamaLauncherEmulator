@@ -25,7 +25,7 @@ from ankama_launcher_emulator.haapi.urls import (
     ANKAMA_ACCOUNT_SIGN_ON_WITH_API_KEY,
     ANKAMA_API_REFRESH_API_KEY,
 )
-from ankama_launcher_emulator.haapi.shield import ShieldRecoveryRequired
+from ankama_launcher_emulator.haapi.shield import ShieldRecoveryRequired, SessionExpired
 from ankama_launcher_emulator.haapi.zaap_version import (
     ZAAP_VERSION,
 )
@@ -152,6 +152,8 @@ class Haapi:
         response = self.zaap_session.get(url, params=params, verify=False)
         if response.status_code == 403 and certif:
             raise ShieldRecoveryRequired(self.login)
+        if response.status_code == 401:
+            raise SessionExpired(self.login)
         response.raise_for_status()
         body = response.json()
         return body["token"]

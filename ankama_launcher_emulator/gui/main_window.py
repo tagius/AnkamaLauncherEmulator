@@ -64,6 +64,7 @@ from ankama_launcher_emulator.haapi.pkce_auth import (
 from ankama_launcher_emulator.haapi.shield import (
     ShieldRequired,
     ShieldRecoveryRequired,
+    SessionExpired,
     check_proxy_needs_shield,
     request_security_code,
     store_shield_certificate,
@@ -103,6 +104,7 @@ class MainWindow(QMainWindow):
         server_handler = getattr(self._server, "handler", None)
         if server_handler is not None:
             server_handler.on_shield_recovery = self._on_server_shield_recovery
+            server_handler.on_session_expired = self._on_server_session_expired
         self._setup_ui(accounts, all_interface)
         self._start_refresh_timer()
 
@@ -409,6 +411,8 @@ class MainWindow(QMainWindow):
         card: AccountCard,
     ) -> None:
         self._set_panel_status("Stored certificate rejected, re-authentication required...")
+        if card.is_running:
+            card.stop_process()
         try:
             dialog_class = _load_embedded_auth_dialog_class()
             session = ZaapPkceSession()
@@ -479,6 +483,105 @@ class MainWindow(QMainWindow):
             )
 
         QTimer.singleShot(0, route_recovery)
+
+    def _on_server_session_expired(self, login: str) -> None:
+        def route_expired() -> None:
+            context = self._launch_contexts.get(login)
+            launch = cast(Callable | None, context.get("launch")) if context else None
+            card = cast(AccountCard | None, context.get("card")) if context else None
+            if launch is None:
+                launch = self._current_launch_fn()
+            if card is None:
+                card = self._find_card(login)
+            if card is None:
+                self._show_error(f"Session expired for {login}")
+                return
+            self._handle_session_expired(login, launch, card)
+
+        QTimer.singleShot(0, route_expired)
+
+    def _handle_session_expired(
+        self,
+        login: str,
+        launch: Callable,
+        card: AccountCard,
+    ) -> None:
+        self._set_panel_status(f"Session expired for {login}.")
+        answer = QMessageBox.question(
+            self,
+            "Session expired",
+            f"The stored session for {login} was invalidated "
+            f"(likely signed on elsewhere).\n\n"
+            f"Re-authenticate and retry launch?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+            return
+
+        if card.is_running:
+            card.stop_process()
+
+        try:
+            dialog_class = _load_embedded_auth_dialog_class()
+            session = ZaapPkceSession()
+            dialog = dialog_class(session.auth_url, login, parent=self)
+        except (ImportError, RuntimeError, OSError) as exc:
+            self._show_error(f"Embedded auth dialog unavailable: {exc}")
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+            return
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+            return
+
+        auth_code = dialog.get_code()
+        if not auth_code:
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+            return
+
+        def reauth_and_relaunch(on_progress: Callable[[str], None]) -> int:
+            on_progress("Signing in again...")
+            data = complete_embedded_login(auth_code, session, login)
+            alias = cast(str | None, (AccountMeta().get(login) or {}).get("alias"))
+            if alias is None:
+                alias = cast(str | None, data.get("nickname")) or None
+            on_progress("Storing refreshed session...")
+            persist_managed_account(
+                login,
+                data["account_id"],
+                data["access_token"],
+                data.get("refresh_token"),
+                alias=alias,
+            )
+            context = self._launch_contexts.get(login, {})
+            interface_ip = cast(str | None, context.get("interface_ip"))
+            proxy_url = cast(str | None, context.get("proxy_url"))
+            on_progress("Retrying launch...")
+            return launch(login, interface_ip, proxy_url, on_progress=on_progress)
+
+        def on_success(result: object) -> None:
+            self._show_success(f"Game launch for {login}")
+            self._set_panel_status("")
+            card.set_running(int(result))  # type: ignore[arg-type]
+
+        def on_error(exc: object) -> None:
+            self._show_error(f"Session recovery failed: {exc}")
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+
+        run_in_background(
+            reauth_and_relaunch,
+            on_success=on_success,
+            on_error=on_error,
+            on_progress=self._set_panel_status,
+            parent=self,
+        )
 
     def _show_shield_recovery_dialog(
         self,

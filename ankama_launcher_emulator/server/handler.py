@@ -11,7 +11,7 @@ from ankama_launcher_emulator.haapi.account_meta import AccountMeta
 from ankama_launcher_emulator.haapi.haapi import (
     get_account_info_by_login,
 )
-from ankama_launcher_emulator.haapi.shield import ShieldRecoveryRequired
+from ankama_launcher_emulator.haapi.shield import ShieldRecoveryRequired, SessionExpired
 from ankama_launcher_emulator.interfaces.account_game_info import (
     AccountGameInfo,
 )
@@ -29,6 +29,9 @@ class AnkamaLauncherHandler:
     )
     _timer: list[Timer] = field(init=False, default_factory=list)
     on_shield_recovery: Callable[[str], None] | None = field(
+        init=False, default=None, repr=False
+    )
+    on_session_expired: Callable[[str], None] | None = field(
         init=False, default=None, repr=False
     )
 
@@ -113,6 +116,10 @@ class AnkamaLauncherHandler:
         except ShieldRecoveryRequired as err:
             if self.on_shield_recovery is not None:
                 self.on_shield_recovery(err.login)
+            raise
+        except SessionExpired as err:
+            if self.on_session_expired is not None:
+                self.on_session_expired(err.login)
             raise
 
     @retry_internet
