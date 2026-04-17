@@ -55,12 +55,26 @@ def _load_embedded_auth_dialog_class():
 
 
 class AddAccountDialog(QDialog):
-    """Dialog for adding an account via programmatic PKCE login."""
+    """Dialog for adding an account via programmatic PKCE login.
 
-    def __init__(self, proxy_store: ProxyStore, parent=None):
+    When `locked_login` is set, operates in reconnect mode: login prefilled
+    and read-only, PKCE result must match the locked login.
+    """
+
+    def __init__(
+        self,
+        proxy_store: ProxyStore,
+        parent=None,
+        locked_login: str | None = None,
+        initial_proxy_id: str | None = None,
+        initial_alias: str | None = None,
+    ):
         super().__init__(parent)
         self._proxy_store = proxy_store
-        self.setWindowTitle("Add Account")
+        self._locked_login = locked_login
+        self._initial_proxy_id = initial_proxy_id
+        self._initial_alias = initial_alias
+        self.setWindowTitle("Reconnect Account" if locked_login else "Add Account")
         self.setMinimumWidth(450)
         self._setup_ui()
 
@@ -72,6 +86,10 @@ class AddAccountDialog(QDialog):
         layout.addWidget(BodyLabel("Login (email)"))
         self._login_input = LineEdit()
         self._login_input.setPlaceholderText("email@example.com")
+        if self._locked_login:
+            self._login_input.setText(self._locked_login)
+            self._login_input.setReadOnly(True)
+            self._login_input.setDisabled(True)
         layout.addWidget(self._login_input)
 
         layout.addWidget(BodyLabel("Password"))
@@ -82,6 +100,8 @@ class AddAccountDialog(QDialog):
         layout.addWidget(BodyLabel("Alias (optional)"))
         self._alias_input = LineEdit()
         self._alias_input.setPlaceholderText("My Alt")
+        if self._initial_alias:
+            self._alias_input.setText(self._initial_alias)
         layout.addWidget(self._alias_input)
 
         layout.addWidget(BodyLabel("Proxy (optional)"))
@@ -89,6 +109,10 @@ class AddAccountDialog(QDialog):
         self._proxy_combo.addItem("No proxy", userData=None)
         for pid, entry in self._proxy_store.list_proxies().items():
             self._proxy_combo.addItem(entry.name, userData=pid)
+        if self._initial_proxy_id:
+            idx = self._proxy_combo.findData(self._initial_proxy_id)
+            if idx >= 0:
+                self._proxy_combo.setCurrentIndex(idx)
         layout.addWidget(self._proxy_combo)
 
         self._status_label = CaptionLabel("")
@@ -96,7 +120,9 @@ class AddAccountDialog(QDialog):
         layout.addWidget(self._status_label)
 
         btn_row = QHBoxLayout()
-        self._add_btn = PrimaryPushButton("Add Account")
+        self._add_btn = PrimaryPushButton(
+            "Reconnect" if self._locked_login else "Add Account"
+        )
         self._add_btn.clicked.connect(self._on_add)
         btn_row.addWidget(self._add_btn)
 
@@ -138,7 +164,10 @@ class AddAccountDialog(QDialog):
                 self._start_browser_login(login, alias, proxy_url)
                 return
             self._add_btn.setEnabled(True)
-            self._status_label.setText(f"Error: {err}")
+            if "incorrect login or password" in str(err).lower():
+                self._status_label.setText("Wrong password")
+            else:
+                self._status_label.setText(f"Error: {err}")
 
         run_in_background(task, on_success=on_success, on_error=on_error, parent=self)
 
@@ -208,6 +237,16 @@ class AddAccountDialog(QDialog):
         alias: str | None,
         proxy_url: str | None,
     ) -> None:
+        if self._locked_login:
+            server_login = str(data.get("login") or "")
+            if server_login.lower() != self._locked_login.lower():
+                self._add_btn.setEnabled(True)
+                self._status_label.setText(
+                    f"Account mismatch: got {server_login}, expected {self._locked_login}"
+                )
+                return
+            login = self._locked_login
+
         security = data.get("security", [])
         needs_shield = "SHIELD" in security or "UNSECURED" in security
 

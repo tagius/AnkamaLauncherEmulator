@@ -62,10 +62,6 @@ from ankama_launcher_emulator.haapi.pkce_auth import (
     complete_embedded_login,
 )
 from ankama_launcher_emulator.haapi.shield import (
-    ShieldRequired,
-    ShieldRecoveryRequired,
-    SessionExpired,
-    check_proxy_needs_shield,
     request_security_code,
     store_shield_certificate,
     validate_security_code,
@@ -83,6 +79,11 @@ def _load_embedded_auth_dialog_class():
         "ankama_launcher_emulator.gui.embedded_auth_browser_dialog"
     )
     return module.EmbeddedAuthBrowserDialog
+
+
+def _is_unauthorized(err: object) -> bool:
+    resp = getattr(err, "response", None)
+    return getattr(resp, "status_code", None) == 401
 
 
 class MainWindow(QMainWindow):
@@ -292,7 +293,7 @@ class MainWindow(QMainWindow):
             lambda l=login, c=card: self._on_remove_account(l, c)
         )
         card.error_occurred.connect(self._show_error)
-        card.reauth_required.connect(self._handle_reauth_request)
+        card.reconnect_requested.connect(self._handle_reconnect)
         self._card_layout.insertWidget(self._card_layout.count() - 1, card)
         self._sync_empty_state()
         return card
@@ -325,27 +326,24 @@ class MainWindow(QMainWindow):
             launch = self._current_launch_fn()
             proxy_url = self._proxy_store.get_proxy_url(login) if proxy_id else None
             interface_ip = cast(str | None, iface)
+            portable = bool((AccountMeta().get(login) or {}).get("portable_mode"))
             self._launch_contexts[login] = {
                 "launch": launch,
                 "card": card,
                 "interface_ip": interface_ip,
                 "proxy_url": proxy_url,
+                "portable": portable,
             }
 
             def on_success(result: object) -> None:
                 self._show_success(f"Game launch for {login}")
                 self._set_panel_status("")
                 card.set_running(int(result))  # type: ignore[arg-type]
+                AccountMeta().record_launch_state(
+                    login, portable, proxy_url, interface_ip
+                )
 
             def on_error(err: object) -> None:
-                if isinstance(err, ShieldRecoveryRequired):
-                    self._set_panel_status("")
-                    self._handle_shield_recovery(err, launch, card)
-                    return
-                if isinstance(err, ShieldRequired):
-                    self._set_panel_status("")
-                    self._handle_shield(err, launch, card)
-                    return
                 self._show_error(str(err))
                 self._set_panel_status("")
                 card.set_launch_enabled(True)
@@ -365,34 +363,47 @@ class MainWindow(QMainWindow):
 
         return handler
 
-    def _handle_shield(
+    def _handle_shield_light(
         self,
-        err: ShieldRequired,
+        login: str,
         launch: Callable,
         card: AccountCard,
     ) -> None:
-        """Handle Shield for existing accounts using stored API key directly.
+        """Email-only Shield flow using the stored API key.
 
-        No browser PKCE needed — use the stored key for SecurityCode/ValidateCode.
-        auth.ankama.com/token rejects redirect_uri=http://127.0.0.1:... (not registered
-        for client_id=102, only zaap://login is). So skip /token entirely.
+        Triggered by ShieldRecoveryRequired (403 at CreateToken). If the
+        SecurityCode or ValidateCode call returns 401, escalates to the
+        heavy (PKCE+email) path.
         """
+        context = self._launch_contexts.get(login, {})
+        proxy_url = cast(str | None, context.get("proxy_url"))
+        interface_ip = cast(str | None, context.get("interface_ip"))
+
+        if card.is_running:
+            card.stop_process()
+        card.set_launch_enabled(False)
         self._set_panel_status("Requesting Shield code via email...")
 
         def request_code(on_progress: Callable) -> str:
-            uuid_active, _, key_folder, _, _ = CryptoHelper.get_crypto_context(err.login)
-            api_key = CryptoHelper.getStoredApiKey(err.login, key_folder, uuid_active)["apikey"]["key"]
+            uuid_active, _, key_folder, _, _ = CryptoHelper.get_crypto_context(login)
+            api_key = CryptoHelper.getStoredApiKey(login, key_folder, uuid_active)["apikey"]["key"]
             on_progress("Requesting security code via email...")
-            request_security_code(api_key, proxy_url=err.proxy_url)
+            request_security_code(api_key, proxy_url=proxy_url)
             logger.info("[SHIELD] Security code requested via email")
             return api_key
 
         def on_code_requested(result: object) -> None:
             api_key = str(result)
             self._set_panel_status("")
-            self._show_shield_code_dialog(err, api_key, launch, card)
+            self._show_shield_code_dialog(
+                login, api_key, launch, card, proxy_url, interface_ip
+            )
 
         def on_error(exc: object) -> None:
+            if _is_unauthorized(exc):
+                logger.info(f"[SHIELD] Light 401 on SecurityCode for {login}, escalating")
+                self._handle_shield_heavy(login, launch, card)
+                return
             self._show_error(f"Shield error: {exc}")
             self._set_panel_status("")
             card.set_launch_enabled(True)
@@ -405,19 +416,22 @@ class MainWindow(QMainWindow):
             parent=self,
         )
 
-    def _handle_shield_recovery(
+    def _handle_shield_heavy(
         self,
-        err: ShieldRecoveryRequired,
+        login: str,
         launch: Callable,
         card: AccountCard,
     ) -> None:
-        self._set_panel_status("Stored certificate rejected, re-authentication required...")
+        """Full PKCE + email Shield flow. Triggered by SessionExpired (401)
+        or escalation from the light path on 401."""
+        self._set_panel_status("Stored session rejected, re-authentication required...")
         if card.is_running:
             card.stop_process()
+        card.set_launch_enabled(False)
         try:
             dialog_class = _load_embedded_auth_dialog_class()
             session = ZaapPkceSession()
-            dialog = dialog_class(session.auth_url, err.login, parent=self)
+            dialog = dialog_class(session.auth_url, login, parent=self)
         except (ImportError, RuntimeError, OSError) as exc:
             self._show_error(f"Embedded auth dialog unavailable: {exc}")
             self._set_panel_status("")
@@ -435,22 +449,27 @@ class MainWindow(QMainWindow):
             card.set_launch_enabled(True)
             return
 
+        browser_cookies = dialog.get_cookies()
+
         def reauthenticate(on_progress: Callable[[str], None]) -> dict:
             on_progress("Signing in again...")
-            data = complete_embedded_login(auth_code, session, err.login)
+            data = complete_embedded_login(
+                auth_code, session, login, cookies=browser_cookies
+            )
             on_progress("Requesting security code via email...")
-            # We don't have proxy context easily accessible here unless we query `AccountMeta`
-            # But portable proxy uses err.proxy_url passed around? Actually err doesn't have proxy_url for ShieldRecoveryRequired
-            # So we query AccountMeta
-            meta = AccountMeta().get(err.login) or {}
-            proxy_url = meta.get("proxy_url")
+            proxy_url = cast(
+                str | None,
+                self._launch_contexts.get(login, {}).get("proxy_url")
+                or (AccountMeta().get(login) or {}).get("proxy_url"),
+            )
             request_security_code(data["access_token"], proxy_url=proxy_url)
+            data["proxy_url"] = proxy_url
             return data
 
         def on_reauthenticated(result: object) -> None:
             self._set_panel_status("")
             data = dict(result)  # type: ignore[arg-type]
-            self._show_shield_recovery_dialog(err.login, data, launch, card)
+            self._show_shield_recovery_dialog(login, data, launch, card)
 
         def on_error(exc: object) -> None:
             self._show_error(f"Shield recovery failed: {exc}")
@@ -477,11 +496,7 @@ class MainWindow(QMainWindow):
             if card is None:
                 self._show_error(f"Shield recovery required for {login}")
                 return
-            self._handle_shield_recovery(
-                ShieldRecoveryRequired(login),
-                launch,
-                card,
-            )
+            self._handle_shield_light(login, launch, card)
 
         QTimer.singleShot(0, route_recovery)
 
@@ -497,275 +512,32 @@ class MainWindow(QMainWindow):
             if card is None:
                 self._show_error(f"Session expired for {login}")
                 return
-            self._handle_session_expired(login, launch, card)
+            self._handle_shield_heavy(login, launch, card)
 
         QTimer.singleShot(0, route_expired)
 
-    def _handle_session_expired(
-        self,
-        login: str,
-        launch: Callable,
-        card: AccountCard,
-    ) -> None:
-        self._set_panel_status(f"Session expired for {login}.")
-        answer = QMessageBox.question(
-            self,
-            "Session expired",
-            f"The stored session for {login} was invalidated "
-            f"(likely signed on elsewhere).\n\n"
-            f"Re-authenticate and retry launch?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            self._set_panel_status("")
-            card.set_launch_enabled(True)
-            return
+    def _handle_reconnect(self, login: str) -> None:
+        from ankama_launcher_emulator.gui.add_account_dialog import AddAccountDialog
 
-        if card.is_running:
-            card.stop_process()
-
-        try:
-            dialog_class = _load_embedded_auth_dialog_class()
-            session = ZaapPkceSession()
-            dialog = dialog_class(session.auth_url, login, parent=self)
-        except (ImportError, RuntimeError, OSError) as exc:
-            self._show_error(f"Embedded auth dialog unavailable: {exc}")
-            self._set_panel_status("")
-            card.set_launch_enabled(True)
-            return
-
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            self._set_panel_status("")
-            card.set_launch_enabled(True)
-            return
-
-        auth_code = dialog.get_code()
-        if not auth_code:
-            self._set_panel_status("")
-            card.set_launch_enabled(True)
-            return
-
-        browser_cookies = dialog.get_cookies()
-
-        def reauth_and_relaunch(on_progress: Callable[[str], None]) -> int:
-            on_progress("Signing in again...")
-            data = complete_embedded_login(
-                auth_code, session, login, cookies=browser_cookies
-            )
-            alias = cast(str | None, (AccountMeta().get(login) or {}).get("alias"))
-            if alias is None:
-                alias = cast(str | None, data.get("nickname")) or None
-            on_progress("Storing refreshed session...")
-            persist_managed_account(
-                login,
-                data["account_id"],
-                data["access_token"],
-                data.get("refresh_token"),
-                alias=alias,
-            )
-            context = self._launch_contexts.get(login, {})
-            interface_ip = cast(str | None, context.get("interface_ip"))
-            proxy_url = cast(str | None, context.get("proxy_url"))
-            on_progress("Retrying launch...")
-            return launch(login, interface_ip, proxy_url, on_progress=on_progress)
-
-        def on_success(result: object) -> None:
-            self._show_success(f"Game launch for {login}")
-            self._set_panel_status("")
-            card.set_running(int(result))  # type: ignore[arg-type]
-
-        def on_error(exc: object) -> None:
-            self._show_error(f"Session recovery failed: {exc}")
-            self._set_panel_status("")
-            card.set_launch_enabled(True)
-
-        run_in_background(
-            reauth_and_relaunch,
-            on_success=on_success,
-            on_error=on_error,
-            on_progress=self._set_panel_status,
-            parent=self,
-        )
-
-    def _handle_reauth_request(self, login: str, reason: str) -> None:
         card = self._find_card(login)
         if card is None:
             return
-        if card.is_running:
-            self._show_error(
-                f"Stop {login} before changing portable mode or proxy"
-            )
-            return
-        if reason == "proxy_changed":
-            self._verify_proxy_and_maybe_reauth(login, card)
-            return
-        if reason == "portable_mode_changed":
-            self._proactive_shield_reissue(login, card)
 
-    def _verify_proxy_and_maybe_reauth(
-        self, login: str, card: AccountCard
-    ) -> None:
-        proxy_url = self._proxy_store.get_proxy_url(login)
-        if not proxy_url:
-            return
+        meta_entry = AccountMeta().get(login) or {}
+        initial_alias = cast(str | None, meta_entry.get("alias"))
+        initial_proxy_id = self._proxy_store.get_assignment(login)
 
-        self._set_panel_status("Verifying new proxy...")
-        card.set_launch_enabled(False)
-
-        def task(on_progress: Callable[[str], None]) -> bool:
-            verify_proxy_ip(proxy_url)
-            try:
-                self._check_shield(login, proxy_url, on_progress)
-                return True
-            except ShieldRequired:
-                return False
-
-        def on_success(result: object) -> None:
-            self._set_panel_status("")
-            card.set_launch_enabled(True)
-            if result:
-                logger.info(f"[REAUTH] Proxy change for {login}: cert still valid")
-                return
-            self._handle_shield(
-                ShieldRequired(login, proxy_url),
-                self._current_launch_fn(),
-                card,
-            )
-
-        def on_error(err: object) -> None:
-            self._show_error(f"Proxy check failed: {err}")
-            self._set_panel_status("")
-            card.set_launch_enabled(True)
-
-        run_in_background(
-            task,
-            on_success=on_success,
-            on_error=on_error,
-            on_progress=self._set_panel_status,
+        dialog = AddAccountDialog(
+            self._proxy_store,
             parent=self,
+            locked_login=login,
+            initial_proxy_id=initial_proxy_id,
+            initial_alias=initial_alias,
         )
-
-    def _proactive_shield_reissue(
-        self, login: str, card: AccountCard
-    ) -> None:
-        self._set_panel_status(
-            f"Re-authenticating {login} (identity changed)..."
-        )
-        card.set_launch_enabled(False)
-        try:
-            dialog_class = _load_embedded_auth_dialog_class()
-            session = ZaapPkceSession()
-            dialog = dialog_class(session.auth_url, login, parent=self)
-        except (ImportError, RuntimeError, OSError) as exc:
-            self._show_error(f"Embedded auth dialog unavailable: {exc}")
-            self._set_panel_status("")
-            card.set_launch_enabled(True)
-            return
-
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            self._set_panel_status("")
-            card.set_launch_enabled(True)
-            return
-
-        auth_code = dialog.get_code()
-        if not auth_code:
-            self._set_panel_status("")
-            card.set_launch_enabled(True)
-            return
-
-        browser_cookies = dialog.get_cookies()
-
-        def reauth(on_progress: Callable[[str], None]) -> dict:
-            on_progress("Signing in again...")
-            data = complete_embedded_login(
-                auth_code, session, login, cookies=browser_cookies
-            )
-            proxy_url = cast(
-                str | None,
-                (AccountMeta().get(login) or {}).get("proxy_url"),
-            )
-            on_progress("Requesting security code via email...")
-            request_security_code(data["access_token"], proxy_url=proxy_url)
-            data["proxy_url"] = proxy_url
-            return data
-
-        def on_reauthenticated(result: object) -> None:
-            self._set_panel_status("")
-            data = dict(result)  # type: ignore[arg-type]
-            self._show_proactive_shield_dialog(login, data, card)
-
-        def on_error(exc: object) -> None:
-            self._show_error(f"Re-auth failed: {exc}")
-            self._set_panel_status("")
-            card.set_launch_enabled(True)
-
-        run_in_background(
-            reauth,
-            on_success=on_reauthenticated,
-            on_error=on_error,
-            on_progress=self._set_panel_status,
-            parent=self,
-        )
-
-    def _show_proactive_shield_dialog(
-        self, login: str, data: dict, card: AccountCard
-    ) -> None:
-        dialog = ShieldCodeDialog(
-            login,
-            parent=self,
-            message=(
-                f"A security code was sent to the email for {login}.\n"
-                "Enter the code to authorize this new identity/IP."
-            ),
-        )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            card.set_launch_enabled(True)
-            return
-
-        code = dialog.get_code()
-        if not code:
-            card.set_launch_enabled(True)
-            return
-
-        def validate_and_store(on_progress: Callable[[str], None]) -> None:
-            on_progress("Validating security code...")
-            uuid_active, cert_folder, _, hm1, hm2 = CryptoHelper.get_crypto_context(login)
-            cert_data = validate_security_code(
-                data["access_token"], code,
-                hm1=hm1, hm2=hm2,
-                proxy_url=data.get("proxy_url"),
-            )
-            on_progress("Storing certificate + refreshed session...")
-            store_shield_certificate(login, cert_data, cert_folder, uuid_active)
-            alias = cast(str | None, (AccountMeta().get(login) or {}).get("alias"))
-            if alias is None:
-                alias = cast(str | None, data.get("nickname")) or None
-            persist_managed_account(
-                login,
-                data["account_id"],
-                data["access_token"],
-                data.get("refresh_token"),
-                alias=alias,
-            )
-
-        def on_success(_: object) -> None:
-            self._set_panel_status("")
-            card.set_launch_enabled(True)
-            self._show_success(f"Re-authenticated {login}")
-
-        def on_error(exc: object) -> None:
-            self._show_error(f"Shield validation failed: {exc}")
-            self._set_panel_status("")
-            card.set_launch_enabled(True)
-
-        run_in_background(
-            validate_and_store,
-            on_success=on_success,
-            on_error=on_error,
-            on_progress=self._set_panel_status,
-            parent=self,
-        )
+        accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        card.refresh_launch_button()
+        if accepted:
+            self._schedule_refresh()
 
     def _show_shield_recovery_dialog(
         self,
@@ -791,15 +563,16 @@ class MainWindow(QMainWindow):
             card.set_launch_enabled(True)
             return
 
+        context = self._launch_contexts.get(login, {})
+        interface_ip = cast(str | None, context.get("interface_ip"))
+        proxy_url = cast(str | None, context.get("proxy_url"))
+
         def validate_and_launch(on_progress: Callable[[str], None]) -> int:
-            context = self._launch_contexts.get(login, {})
-            interface_ip = cast(str | None, context.get("interface_ip"))
-            proxy_url = cast(str | None, context.get("proxy_url"))
             on_progress("Validating security code...")
-            
             uuid_active, cert_folder, _, hm1, hm2 = CryptoHelper.get_crypto_context(login)
-            cert_data = validate_security_code(data["access_token"], code, hm1=hm1, hm2=hm2, proxy_url=proxy_url)
-            
+            cert_data = validate_security_code(
+                data["access_token"], code, hm1=hm1, hm2=hm2, proxy_url=proxy_url
+            )
             on_progress("Storing refreshed certificate...")
             store_shield_certificate(login, cert_data, cert_folder, uuid_active)
             alias = cast(str | None, (AccountMeta().get(login) or {}).get("alias"))
@@ -827,6 +600,8 @@ class MainWindow(QMainWindow):
             self._show_success(f"Game launch for {login}")
             self._set_panel_status("")
             card.set_running(int(result))  # type: ignore[arg-type]
+            portable = bool((AccountMeta().get(login) or {}).get("portable_mode"))
+            AccountMeta().record_launch_state(login, portable, proxy_url, interface_ip)
 
         def on_error(retry_err: object) -> None:
             self._show_error(str(retry_err))
@@ -843,16 +618,18 @@ class MainWindow(QMainWindow):
 
     def _show_shield_code_dialog(
         self,
-        err: ShieldRequired,
+        login: str,
         api_key: str,
         launch: Callable,
         card: AccountCard,
+        proxy_url: str | None,
+        interface_ip: str | None,
     ) -> None:
         dialog = ShieldCodeDialog(
-            err.login,
+            login,
             parent=self,
             message=(
-                f"A security code was sent to the email for {err.login}.\n"
+                f"A security code was sent to the email for {login}.\n"
                 "Enter the code below to verify this device."
             ),
         )
@@ -867,26 +644,35 @@ class MainWindow(QMainWindow):
 
         def validate_and_launch(on_progress: Callable) -> int:
             on_progress("Validating security code...")
-            uuid_active, cert_folder, _, hm1, hm2 = CryptoHelper.get_crypto_context(err.login)
-            cert_data = validate_security_code(api_key, code, hm1=hm1, hm2=hm2, proxy_url=err.proxy_url)
+            uuid_active, cert_folder, _, hm1, hm2 = CryptoHelper.get_crypto_context(login)
+            cert_data = validate_security_code(
+                api_key, code, hm1=hm1, hm2=hm2, proxy_url=proxy_url
+            )
             logger.info("[SHIELD] ValidateCode success")
             on_progress("Storing certificate...")
-            store_shield_certificate(err.login, cert_data, cert_folder, uuid_active)
+            store_shield_certificate(login, cert_data, cert_folder, uuid_active)
+            if proxy_url:
+                self._proxy_store.save_validated(login, proxy_url)
             on_progress("Shield validated, launching...")
-            self._proxy_store.save_validated(err.login, err.proxy_url)
             return launch(
-                err.login,
-                None,
-                err.proxy_url,
+                login,
+                interface_ip,
+                proxy_url,
                 on_progress=on_progress,
             )
 
         def on_success(result: object) -> None:
-            self._show_success(f"Game launch for {err.login}")
+            self._show_success(f"Game launch for {login}")
             self._set_panel_status("")
             card.set_running(int(result))  # type: ignore[arg-type]
+            portable = bool((AccountMeta().get(login) or {}).get("portable_mode"))
+            AccountMeta().record_launch_state(login, portable, proxy_url, interface_ip)
 
         def on_error(retry_err: object) -> None:
+            if _is_unauthorized(retry_err):
+                logger.info(f"[SHIELD] Light 401 on ValidateCode for {login}, escalating")
+                self._handle_shield_heavy(login, launch, card)
+                return
             self._show_error(str(retry_err))
             self._set_panel_status("")
             card.set_launch_enabled(True)
@@ -898,38 +684,6 @@ class MainWindow(QMainWindow):
             on_progress=self._set_panel_status,
             parent=self,
         )
-
-    def _check_shield(
-        self,
-        login: str,
-        proxy_url: str,
-        on_progress: Callable[[str], None] | None,
-    ) -> None:
-        """Check if proxy IP needs Shield verification. Raises ShieldRequired if so.
-
-        If a certificate already exists locally, skip entirely — certificates are
-        machine-bound (hm1/hm2), not IP-bound. CreateToken will include the
-        certificate_hash which authorizes the request regardless of proxy IP.
-
-        Shield enrollment only needed when no certificate exists AND account
-        security requires it.
-        """
-        try:
-            uuid_active, cert_folder, _, _, _ = CryptoHelper.get_crypto_context(login)
-            CryptoHelper.getStoredCertificate(login, cert_folder, uuid_active)
-            logger.info(
-                f"[SHIELD] Certificate exists for {login}, skipping Shield check"
-            )
-            return
-        except FileNotFoundError:
-            pass
-
-        if on_progress:
-            on_progress("Checking proxy authorization...")
-        uuid_active, _, key_folder, _, _ = CryptoHelper.get_crypto_context(login)
-        api_key = CryptoHelper.getStoredApiKey(login, key_folder, uuid_active)["apikey"]["key"]
-        if check_proxy_needs_shield(api_key, proxy_url):
-            raise ShieldRequired(login, proxy_url)
 
     def _launch_dofus(
         self,
@@ -944,7 +698,6 @@ class MainWindow(QMainWindow):
             if on_progress:
                 on_progress("Verifying proxy...")
             verify_proxy_ip(proxy_url)
-            self._check_shield(login, proxy_url, on_progress)
         return self._server.launch_dofus(
             login,
             proxy_listener=proxy_listener,
@@ -965,7 +718,6 @@ class MainWindow(QMainWindow):
             if on_progress:
                 on_progress("Verifying proxy...")
             verify_proxy_ip(proxy_url)
-            self._check_shield(login, proxy_url, on_progress)
         return self._server.launch_retro(
             login,
             proxy_url=proxy_url,

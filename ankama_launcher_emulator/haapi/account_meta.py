@@ -110,7 +110,37 @@ class AccountMeta:
         entry = self._data.get(login, {})
         entry["proxy_url"] = proxy_url
         self._data[login] = entry
-        self._save()    
+        self._save()
+
+    def record_launch_state(
+        self,
+        login: str,
+        portable_mode: bool,
+        proxy_url: str | None,
+        interface_ip: str | None,
+    ) -> None:
+        entry = self._data.get(login, {})
+        entry["last_launch_portable_mode"] = portable_mode
+        entry["last_launch_proxy_url"] = proxy_url
+        entry["last_launch_interface_ip"] = interface_ip
+        self._data[login] = entry
+        self._save()
+
+    def state_changed_since_last_launch(
+        self,
+        login: str,
+        portable_mode: bool,
+        proxy_url: str | None,
+        interface_ip: str | None,
+    ) -> bool:
+        entry = self._data.get(login) or {}
+        if "last_launch_portable_mode" not in entry:
+            return True
+        return (
+            entry.get("last_launch_portable_mode") != portable_mode
+            or entry.get("last_launch_proxy_url") != proxy_url
+            or entry.get("last_launch_interface_ip") != interface_ip
+        )
 
     def is_proxy_used(self, proxy_url: str, exclude_login: str | None = None) -> bool:
         for _login, entry in self._data.items():

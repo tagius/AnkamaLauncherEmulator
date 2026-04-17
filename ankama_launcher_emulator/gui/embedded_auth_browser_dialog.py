@@ -80,7 +80,9 @@ class EmbeddedAuthBrowserDialog(QDialog):
 
     def _on_code(self, code: str) -> None:
         self._auth_code = code
-        self.accept()
+        # Defer: _on_code runs inside Chromium's acceptNavigationRequest;
+        # tearing down page/profile on that stack segfaults the renderer.
+        QTimer.singleShot(0, self.accept)
 
     def get_code(self) -> str | None:
         return self._auth_code

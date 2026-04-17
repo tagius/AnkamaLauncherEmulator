@@ -1,3 +1,5 @@
+import os
+
 import psutil
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QGridLayout, QLabel, QVBoxLayout
@@ -11,6 +13,7 @@ from qfluentwidgets import (
     SwitchButton,
 )
 
+from ankama_launcher_emulator.decrypter.crypto_helper import CryptoHelper
 from ankama_launcher_emulator.gui.consts import (
     BORDER_HEXA,
     GREEN_HEXA,
@@ -24,13 +27,28 @@ from ankama_launcher_emulator.utils.proxy_store import ProxyStore
 from ankama_launcher_emulator.haapi.account_meta import AccountMeta
 
 
+BLUE_HEXA = "#3A82F7"
+
+
+def has_active_credentials(login: str) -> bool:
+    """True if the active (portable or official) folders hold both key and cert."""
+    try:
+        _, cert_folder, key_folder, _, _ = CryptoHelper.get_crypto_context(login)
+    except (FileNotFoundError, OSError):
+        return False
+    hash_suffix = CryptoHelper.createHashFromStringSha(login)
+    key_path = os.path.join(key_folder, ".key" + hash_suffix)
+    cert_path = os.path.join(cert_folder, ".certif" + hash_suffix)
+    return os.path.exists(key_path) and os.path.exists(cert_path)
+
+
 class AccountCard(CardWidget):
     launch_requested = pyqtSignal(
         object, object
     )  # (interface_ip: str | None, proxy_id: str | None)
     remove_requested = pyqtSignal()
     error_occurred = pyqtSignal(str)
-    reauth_required = pyqtSignal(str, str)  # (login, reason)
+    reconnect_requested = pyqtSignal(str)  # login
 
     def __init__(
         self,
@@ -120,11 +138,9 @@ class AccountCard(CardWidget):
 
         self._launch_btn = PrimaryPushButton("Launch")
         self._launch_btn.setFixedWidth(110)
-        self._launch_btn.setStyleSheet(
-            f"PrimaryPushButton {{ background-color: {ORANGE_HEXA}; }}"
-        )
         self._launch_btn.clicked.connect(self._on_btn_clicked)
         layout.addWidget(self._launch_btn, 0, 5)
+        self._refresh_launch_button()
 
         self._remove_btn = PushButton("X")
         self._remove_btn.setFixedWidth(36)
@@ -137,7 +153,21 @@ class AccountCard(CardWidget):
 
     def _on_portable_toggled(self, checked: bool) -> None:
         AccountMeta().set_portable_mode(self.login, checked)
-        self.reauth_required.emit(self.login, "portable_mode_changed")
+        self._refresh_launch_button()
+
+    def _refresh_launch_button(self) -> None:
+        if self._current_pid is not None:
+            return
+        if has_active_credentials(self.login):
+            self._launch_btn.setText("Launch")
+            self._launch_btn.setStyleSheet(
+                f"PrimaryPushButton {{ background-color: {ORANGE_HEXA}; }}"
+            )
+        else:
+            self._launch_btn.setText("Reconnect")
+            self._launch_btn.setStyleSheet(
+                f"PrimaryPushButton {{ background-color: {BLUE_HEXA}; }}"
+            )
 
     def _refresh_proxy_combo(self) -> None:
         current_pid = self._proxy_combo.currentData()
@@ -182,11 +212,7 @@ class AccountCard(CardWidget):
             proxy_url = None
             meta.set_proxy(self.login, None)
 
-        if proxy_url and proxy_url != self._last_proxy_url:
-            self._last_proxy_url = proxy_url
-            self.reauth_required.emit(self.login, "proxy_changed")
-        else:
-            self._last_proxy_url = proxy_url
+        self._last_proxy_url = proxy_url
 
     def _on_test_proxy(self) -> None:
         proxy_id = self._proxy_combo.currentData()
@@ -217,8 +243,11 @@ class AccountCard(CardWidget):
     def _on_btn_clicked(self) -> None:
         if self._current_pid is not None:
             self._stop_process()
-        else:
+        elif has_active_credentials(self.login):
             self._on_launch_clicked()
+        else:
+            self._launch_btn.setDisabled(True)
+            self.reconnect_requested.emit(self.login)
 
     def _on_launch_clicked(self) -> None:
         interface_ip = self._ip_combo.currentData() or None
@@ -249,6 +278,9 @@ class AccountCard(CardWidget):
     def set_running(self, pid: int) -> None:
         self._current_pid = pid
         self._launch_btn.setText("Stop")
+        self._launch_btn.setStyleSheet(
+            f"PrimaryPushButton {{ background-color: {ORANGE_HEXA}; }}"
+        )
         self._launch_btn.setEnabled(True)
         self._status_dot.setVisible(True)
         self._meta_label.setText("Running")
@@ -268,13 +300,17 @@ class AccountCard(CardWidget):
     def _on_process_ended(self) -> None:
         self._current_pid = None
         self._monitor_timer.stop()
-        self._launch_btn.setText("Launch")
         self._launch_btn.setEnabled(True)
         self._status_dot.setVisible(False)
         self._meta_label.setText("Stored account")
+        self._refresh_launch_button()
 
     def set_launch_enabled(self, enabled: bool) -> None:
         self._launch_btn.setEnabled(enabled)
+
+    def refresh_launch_button(self) -> None:
+        self._launch_btn.setEnabled(True)
+        self._refresh_launch_button()
 
     @property
     def is_running(self) -> bool:
