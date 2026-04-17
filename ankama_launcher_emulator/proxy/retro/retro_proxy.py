@@ -113,7 +113,6 @@ class RetroServer(Thread):
 
         remote_sock.connect((host, remote_port))
 
-        client_conn.sendall(b"HTTP/1.0 200 Connection established\r\n\r\n")
         if pending:
             remote_sock.sendall(pending)
 
@@ -124,11 +123,17 @@ class RetroServer(Thread):
                     if not chunk:
                         break
                     dst.sendall(chunk)
-            except ConnectionAbortedError:
+            except OSError:
                 pass
             finally:
-                src.close()
-                dst.close()
+                try:
+                    src.close()
+                except OSError:
+                    pass
+                try:
+                    dst.close()
+                except OSError:
+                    pass
 
         Thread(target=forward, args=(client_conn, remote_sock), daemon=True).start()
         Thread(target=forward, args=(remote_sock, client_conn), daemon=True).start()
