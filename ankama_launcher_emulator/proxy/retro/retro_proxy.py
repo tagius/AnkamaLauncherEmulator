@@ -40,32 +40,40 @@ class RetroServer(Thread):
                 data = conn.recv(4096)
                 if not data:
                     break
-                decoded = data.decode("utf-8", errors="ignore")
-                decoded_clean = decoded.rstrip("\x00")
-                logger.info(f"[RETRO] Data: {decoded_clean}")
 
-                if decoded_clean.startswith("CONNECT "):
+                if data.startswith(b"CONNECT "):
+                    header, _, pending = data.partition(b"\r\n\r\n")
+                    connect_line = header.decode("ascii", errors="ignore")
+                    logger.info(
+                        f"[RETRO] Cmd: {connect_line.splitlines()[0][:200]}"
+                    )
                     tunneling = True
-                    self._start_tunnel(conn, decoded_clean)
+                    self._start_tunnel(conn, connect_line, pending)
                     return
 
-                elif decoded_clean.startswith("connect retro main"):
+                decoded_clean = data.decode("utf-8", errors="ignore").rstrip("\x00")
+                if decoded_clean.startswith(
+                    ("connect retro main", "auth_getGameToken")
+                ):
+                    logger.info(
+                        f"[RETRO] Cmd: {decoded_clean.splitlines()[0][:200]}"
+                    )
+                else:
+                    logger.debug(f"[RETRO] {len(data)} bytes")
+
+                if decoded_clean.startswith("connect retro main"):
                     parts = decoded_clean.split(" ")
                     if len(parts) > 0:
                         client_hash = parts[-1]
-                        logger.info(
-                            f"[RETRO] Connection request for UUID: {client_hash}"
-                        )
                         conn.sendall(b"connected\x00")
                         conn.sendall(f"connect {client_hash}\x00".encode("utf-8"))
 
                 elif decoded_clean.startswith("auth_getGameToken"):
                     if client_hash:
-                        logger.info(f"[RETRO] Generating token for {client_hash}")
-                        token_json = self.handler.auth_getGameToken(client_hash, 101)
-                        token = token_json
-                        response = f"auth_getGameToken {token}\x00"
-                        conn.sendall(response.encode("utf-8"))
+                        token = self.handler.auth_getGameToken(client_hash, 101)
+                        conn.sendall(
+                            f"auth_getGameToken {token}\x00".encode("utf-8")
+                        )
                     else:
                         logger.info(
                             "[RETRO] Error: auth_getGameToken received without handshake"
@@ -74,7 +82,12 @@ class RetroServer(Thread):
             if not tunneling:
                 conn.close()
 
-    def _start_tunnel(self, client_conn: socket.socket, connect_message: str):
+    def _start_tunnel(
+        self,
+        client_conn: socket.socket,
+        connect_message: str,
+        pending: bytes = b"",
+    ):
         parts = connect_message.split(" ")
         host_port = parts[1]
         host, port_str = host_port.rsplit(":", 1)
@@ -99,6 +112,10 @@ class RetroServer(Thread):
             remote_sock.bind((self.interface_ip, 0))
 
         remote_sock.connect((host, remote_port))
+
+        client_conn.sendall(b"HTTP/1.0 200 Connection established\r\n\r\n")
+        if pending:
+            remote_sock.sendall(pending)
 
         def forward(src: socket.socket, dst: socket.socket):
             try:
