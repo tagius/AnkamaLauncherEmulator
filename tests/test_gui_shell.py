@@ -31,6 +31,9 @@ class _StubProxyStore:
     def test_proxy(self, _proxy_id):
         return None
 
+    def get_proxy_url(self, _login):
+        return None
+
 
 class GuiShellTests(unittest.TestCase):
     @classmethod
