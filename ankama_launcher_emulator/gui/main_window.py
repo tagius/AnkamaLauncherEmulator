@@ -292,6 +292,7 @@ class MainWindow(QMainWindow):
             lambda l=login, c=card: self._on_remove_account(l, c)
         )
         card.error_occurred.connect(self._show_error)
+        card.reauth_required.connect(self._handle_reauth_request)
         self._card_layout.insertWidget(self._card_layout.count() - 1, card)
         self._sync_empty_state()
         return card
@@ -577,6 +578,181 @@ class MainWindow(QMainWindow):
 
         run_in_background(
             reauth_and_relaunch,
+            on_success=on_success,
+            on_error=on_error,
+            on_progress=self._set_panel_status,
+            parent=self,
+        )
+
+    def _handle_reauth_request(self, login: str, reason: str) -> None:
+        card = self._find_card(login)
+        if card is None:
+            return
+        if card.is_running:
+            self._show_error(
+                f"Stop {login} before changing portable mode or proxy"
+            )
+            return
+        if reason == "proxy_changed":
+            self._verify_proxy_and_maybe_reauth(login, card)
+            return
+        if reason == "portable_mode_changed":
+            self._proactive_shield_reissue(login, card)
+
+    def _verify_proxy_and_maybe_reauth(
+        self, login: str, card: AccountCard
+    ) -> None:
+        proxy_url = self._proxy_store.get_proxy_url(login)
+        if not proxy_url:
+            return
+
+        self._set_panel_status("Verifying new proxy...")
+        card.set_launch_enabled(False)
+
+        def task(on_progress: Callable[[str], None]) -> bool:
+            verify_proxy_ip(proxy_url)
+            try:
+                self._check_shield(login, proxy_url, on_progress)
+                return True
+            except ShieldRequired:
+                return False
+
+        def on_success(result: object) -> None:
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+            if result:
+                logger.info(f"[REAUTH] Proxy change for {login}: cert still valid")
+                return
+            self._handle_shield(
+                ShieldRequired(login, proxy_url),
+                self._current_launch_fn(),
+                card,
+            )
+
+        def on_error(err: object) -> None:
+            self._show_error(f"Proxy check failed: {err}")
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+
+        run_in_background(
+            task,
+            on_success=on_success,
+            on_error=on_error,
+            on_progress=self._set_panel_status,
+            parent=self,
+        )
+
+    def _proactive_shield_reissue(
+        self, login: str, card: AccountCard
+    ) -> None:
+        self._set_panel_status(
+            f"Re-authenticating {login} (identity changed)..."
+        )
+        card.set_launch_enabled(False)
+        try:
+            dialog_class = _load_embedded_auth_dialog_class()
+            session = ZaapPkceSession()
+            dialog = dialog_class(session.auth_url, login, parent=self)
+        except (ImportError, RuntimeError, OSError) as exc:
+            self._show_error(f"Embedded auth dialog unavailable: {exc}")
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+            return
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+            return
+
+        auth_code = dialog.get_code()
+        if not auth_code:
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+            return
+
+        def reauth(on_progress: Callable[[str], None]) -> dict:
+            on_progress("Signing in again...")
+            data = complete_embedded_login(auth_code, session, login)
+            proxy_url = cast(
+                str | None,
+                (AccountMeta().get(login) or {}).get("proxy_url"),
+            )
+            on_progress("Requesting security code via email...")
+            request_security_code(data["access_token"], proxy_url=proxy_url)
+            data["proxy_url"] = proxy_url
+            return data
+
+        def on_reauthenticated(result: object) -> None:
+            self._set_panel_status("")
+            data = dict(result)  # type: ignore[arg-type]
+            self._show_proactive_shield_dialog(login, data, card)
+
+        def on_error(exc: object) -> None:
+            self._show_error(f"Re-auth failed: {exc}")
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+
+        run_in_background(
+            reauth,
+            on_success=on_reauthenticated,
+            on_error=on_error,
+            on_progress=self._set_panel_status,
+            parent=self,
+        )
+
+    def _show_proactive_shield_dialog(
+        self, login: str, data: dict, card: AccountCard
+    ) -> None:
+        dialog = ShieldCodeDialog(
+            login,
+            parent=self,
+            message=(
+                f"A security code was sent to the email for {login}.\n"
+                "Enter the code to authorize this new identity/IP."
+            ),
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            card.set_launch_enabled(True)
+            return
+
+        code = dialog.get_code()
+        if not code:
+            card.set_launch_enabled(True)
+            return
+
+        def validate_and_store(on_progress: Callable[[str], None]) -> None:
+            on_progress("Validating security code...")
+            uuid_active, cert_folder, _, hm1, hm2 = CryptoHelper.get_crypto_context(login)
+            cert_data = validate_security_code(
+                data["access_token"], code,
+                hm1=hm1, hm2=hm2,
+                proxy_url=data.get("proxy_url"),
+            )
+            on_progress("Storing certificate + refreshed session...")
+            store_shield_certificate(login, cert_data, cert_folder, uuid_active)
+            alias = cast(str | None, (AccountMeta().get(login) or {}).get("alias"))
+            if alias is None:
+                alias = cast(str | None, data.get("nickname")) or None
+            persist_managed_account(
+                login,
+                data["account_id"],
+                data["access_token"],
+                data.get("refresh_token"),
+                alias=alias,
+            )
+
+        def on_success(_: object) -> None:
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+            self._show_success(f"Re-authenticated {login}")
+
+        def on_error(exc: object) -> None:
+            self._show_error(f"Shield validation failed: {exc}")
+            self._set_panel_status("")
+            card.set_launch_enabled(True)
+
+        run_in_background(
+            validate_and_store,
             on_success=on_success,
             on_error=on_error,
             on_progress=self._set_panel_status,

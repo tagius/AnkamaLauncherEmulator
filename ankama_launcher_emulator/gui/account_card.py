@@ -30,6 +30,7 @@ class AccountCard(CardWidget):
     )  # (interface_ip: str | None, proxy_id: str | None)
     remove_requested = pyqtSignal()
     error_occurred = pyqtSignal(str)
+    reauth_required = pyqtSignal(str, str)  # (login, reason)
 
     def __init__(
         self,
@@ -42,6 +43,7 @@ class AccountCard(CardWidget):
         self.login = login
         self._proxy_store = proxy_store
         self._current_pid: int | None = None
+        self._last_proxy_url: str | None = self._proxy_store.get_proxy_url(login)
         self._setup_ui(all_interface)
 
         self._monitor_timer = QTimer(self)
@@ -135,6 +137,7 @@ class AccountCard(CardWidget):
 
     def _on_portable_toggled(self, checked: bool) -> None:
         AccountMeta().set_portable_mode(self.login, checked)
+        self.reauth_required.emit(self.login, "portable_mode_changed")
 
     def _refresh_proxy_combo(self) -> None:
         current_pid = self._proxy_combo.currentData()
@@ -168,8 +171,7 @@ class AccountCard(CardWidget):
     def _on_proxy_changed(self) -> None:
         proxy_id = self._proxy_combo.currentData()
         self._proxy_store.assign_proxy(self.login, proxy_id)
-        
-        # Sync Proxy URL into AccountMeta for Portable decoupled flow access
+
         meta = AccountMeta()
         if proxy_id:
             proxy_url = self._proxy_store.get_proxy_url(self.login)
@@ -177,7 +179,14 @@ class AccountCard(CardWidget):
                 self.error_occurred.emit("Warning: This proxy is already in use by another account.")
             meta.set_proxy(self.login, proxy_url)
         else:
+            proxy_url = None
             meta.set_proxy(self.login, None)
+
+        if proxy_url and proxy_url != self._last_proxy_url:
+            self._last_proxy_url = proxy_url
+            self.reauth_required.emit(self.login, "proxy_changed")
+        else:
+            self._last_proxy_url = proxy_url
 
     def _on_test_proxy(self) -> None:
         proxy_id = self._proxy_combo.currentData()

@@ -150,7 +150,7 @@ class Haapi:
                 certif, hm1=hm1, hm2=hm2
             )
         response = self.zaap_session.get(url, params=params, verify=False)
-        if response.status_code == 403 and certif:
+        if response.status_code == 403:
             raise ShieldRecoveryRequired(self.login)
         if response.status_code == 401:
             raise SessionExpired(self.login)
