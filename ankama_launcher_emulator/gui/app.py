@@ -1,13 +1,27 @@
+import contextlib
+import io
 import sys
 
+from PyQt6.QtCore import qInstallMessageHandler
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QApplication,
 )
-from qfluentwidgets import (
-    Theme,
-    setTheme,
-)
+
+with contextlib.redirect_stdout(io.StringIO()):
+    from qfluentwidgets import (
+        Theme,
+        setTheme,
+    )
+
+
+def _qt_msg_filter(mode, ctx, msg):
+    if "setPointSize: Point size <= 0" in msg:
+        return
+    sys.stderr.write(msg + "\n")
+
+
+qInstallMessageHandler(_qt_msg_filter)
 
 from ankama_launcher_emulator.consts import RESOURCES
 from ankama_launcher_emulator.gui.main_window import MainWindow
