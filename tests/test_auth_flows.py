@@ -1,4 +1,5 @@
 import os
+import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -170,6 +171,7 @@ class AuthFlowTests(unittest.TestCase):
         )
         self.assertIs(dialog_class, module.EmbeddedAuthBrowserDialog)
 
+    @unittest.skipUnless(sys.platform == "win32", "Device.getUUID/getOsVersion are Windows-only")
     @patch("ankama_launcher_emulator.gui.add_account_dialog.run_in_background")
     @patch("ankama_launcher_emulator.gui.add_account_dialog.persist_managed_account")
     @patch("ankama_launcher_emulator.gui.add_account_dialog.store_shield_certificate")
@@ -230,10 +232,10 @@ class AuthFlowTests(unittest.TestCase):
         with patch.object(meta, "_save") as save:
             meta.set_meta("demo@example.com", source="other")
 
-        self.assertEqual(
-            meta._data["demo@example.com"],
-            {"fake_uuid": "deadbeef", "source": "other"},
-        )
+        entry = meta._data["demo@example.com"]
+        self.assertEqual(entry["fake_uuid"], "deadbeef")
+        self.assertEqual(entry["source"], "other")
+        self.assertIn("added_at", entry)
         save.assert_called_once()
 
     @patch("ankama_launcher_emulator.haapi.pkce_auth.fetch_account_profile")
@@ -271,6 +273,7 @@ class AuthFlowTests(unittest.TestCase):
             },
         )
 
+    @unittest.skipUnless(sys.platform == "win32", "Device.getOsVersion is Windows-only")
     @patch("ankama_launcher_emulator.gui.main_window.run_in_background")
     @patch("ankama_launcher_emulator.gui.main_window.persist_managed_account")
     @patch("ankama_launcher_emulator.gui.main_window.store_shield_certificate")
@@ -386,6 +389,7 @@ class AuthFlowTests(unittest.TestCase):
 
         self.assertEqual(ctx.exception.login, "demo@example.com")
 
+    @unittest.skipUnless(sys.platform == "win32", "Device.getUUID is Windows-only")
     @patch("ankama_launcher_emulator.server.handler.AccountMeta")
     @patch("ankama_launcher_emulator.server.handler.CryptoHelper.getStoredCertificate")
     @patch("ankama_launcher_emulator.server.handler.CryptoHelper.createHmEncoders")
