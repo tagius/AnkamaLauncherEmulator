@@ -57,13 +57,20 @@ class CryptoHelper:
 
     @staticmethod
     def getStoredApiKeys(api_key_folder_path: str, uuid_auth: str) -> list[DecipheredApiKey]:
+        # Portable mode parks multiple accounts in one ALT folder, each
+        # encrypted with its own fake_uuid. Iterating with one uuid is
+        # expected to hit cross-account ciphertext — skip files that don't
+        # decrypt instead of aborting the whole scan.
         deciphered_apikeys: list[DecipheredApiKey] = []
         for apikey_file in os.listdir(api_key_folder_path):
             if not apikey_file.startswith(".key"):
                 continue
-            apikey_data: DecipheredApiKeyDatas = CryptoHelper.decryptFromFile(
-                os.path.join(api_key_folder_path, apikey_file), uuid_auth
-            )
+            try:
+                apikey_data: DecipheredApiKeyDatas = CryptoHelper.decryptFromFile(
+                    os.path.join(api_key_folder_path, apikey_file), uuid_auth
+                )
+            except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+                continue
             deciphered_apikeys.append(
                 {"apikeyFile": apikey_file, "apikey": apikey_data}
             )
