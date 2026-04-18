@@ -18,6 +18,7 @@ from ankama_launcher_emulator.gui.consts import (
     BORDER_HEXA,
     GREEN_HEXA,
     ORANGE_HEXA,
+    BLUE_HEXA,
     PANEL_ALT_HEXA,
     PANEL_BG_HEXA,
     TEXT_MUTED_HEXA,
@@ -25,9 +26,6 @@ from ankama_launcher_emulator.gui.consts import (
 from ankama_launcher_emulator.gui.utils import run_in_background
 from ankama_launcher_emulator.utils.proxy_store import ProxyStore
 from ankama_launcher_emulator.haapi.account_meta import AccountMeta
-
-
-BLUE_HEXA = "#3A82F7"
 
 
 def has_active_credentials(login: str) -> bool:
