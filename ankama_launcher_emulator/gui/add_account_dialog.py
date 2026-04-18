@@ -44,6 +44,7 @@ def _should_use_browser_login(err: object) -> bool:
         "failed to extract csrf state" in message
         or "request blocked" in message
         or "cloudfront" in message
+        or "waf bypass failed" in message
     )
 
 

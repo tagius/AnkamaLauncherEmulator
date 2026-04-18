@@ -302,6 +302,13 @@ def programmatic_pkce_login(
     state = state_match.group(1)
     logger.info("[PKCE-PROG] Got CSRF state")
 
+    # Step 2b: Obtain AWS WAF token (same flow as Bubble.D3 AwsBypassService)
+    progress("Solving AWS WAF challenge...")
+    from ankama_launcher_emulator.haapi.aws_waf_bypass import get_aws_waf_token
+    waf_token = get_aws_waf_token(state)
+    session.cookies.set("aws-waf-token", waf_token, domain="auth.ankama.com", path="/")
+    logger.info("[PKCE-PROG] WAF token injected")
+
     # Step 3: POST credentials
     progress("Submitting credentials...")
     resp = session.post(
@@ -345,7 +352,7 @@ def programmatic_pkce_login(
 
     logger.info("[PKCE-PROG] Got auth code")
 
-    # Step 5: Exchange code for tokens (direct, no proxy — auth.ankama.com blocks proxies on /token)
+    # Step 5: Exchange code for tokens — direct (no proxy), WAF token in cookie
     progress("Exchanging tokens...")
     token_payload = urlencode(
         {
@@ -356,7 +363,9 @@ def programmatic_pkce_login(
             "code_verifier": code_verifier,
         }
     )
-    token_resp = requests.post(
+    token_session = requests.Session()
+    token_session.cookies.set("aws-waf-token", waf_token, domain="auth.ankama.com", path="/")
+    token_resp = token_session.post(
         f"{AUTH_BASE}/token",
         headers={
             "User-Agent": f"Zaap {ZAAP_VERSION}",
