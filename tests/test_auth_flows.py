@@ -51,33 +51,27 @@ class AuthFlowTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = ensure_app()
 
-    @patch("ankama_launcher_emulator.gui.add_account_dialog.run_in_background")
-    def test_add_account_falls_back_to_browser_when_headless_pkce_is_blocked(
-        self, run_in_background
-    ):
+    def test_add_account_falls_back_to_browser_when_headless_pkce_is_blocked(self):
         dialog = AddAccountDialog(_ProxyStore())
         dialog._login_input.setText("demo@example.com")
         dialog._password_input.setText("hunter2")
 
-        def fail_headless(task, on_success=None, on_error=None, parent=None):
-            del task, on_success, parent
+        def fail_headless(task, on_success=None, on_error=None):
+            del task, on_success
             on_error(RuntimeError("Failed to extract CSRF state from login page"))
 
-        run_in_background.side_effect = fail_headless
-
-        with patch.object(dialog, "_start_browser_login") as start_browser_login:
-            dialog._on_add()
+        with patch.object(dialog, "_run_worker", side_effect=fail_headless):
+            with patch.object(dialog, "_start_browser_login") as start_browser_login:
+                dialog._on_add()
 
         start_browser_login.assert_called_once_with(
             "demo@example.com", None, None
         )
 
-    @patch("ankama_launcher_emulator.gui.add_account_dialog.run_in_background")
     @patch("ankama_launcher_emulator.gui.add_account_dialog._load_embedded_auth_dialog_class")
     def test_add_account_runtime_loader_failure_updates_status(
         self,
         load_embedded_auth_dialog_class,
-        run_in_background,
     ):
         dialog = AddAccountDialog(_ProxyStore())
         dialog._login_input.setText("demo@example.com")
@@ -85,13 +79,12 @@ class AuthFlowTests(unittest.TestCase):
 
         load_embedded_auth_dialog_class.side_effect = ImportError("QWebEngine missing")
 
-        def fail_headless(task, on_success=None, on_error=None, parent=None):
-            del task, on_success, parent
+        def fail_headless(task, on_success=None, on_error=None):
+            del task, on_success
             on_error(RuntimeError("Failed to extract CSRF state from login page"))
 
-        run_in_background.side_effect = fail_headless
-
-        dialog._on_add()
+        with patch.object(dialog, "_run_worker", side_effect=fail_headless):
+            dialog._on_add()
 
         self.assertEqual(
             dialog._status_label.text(),
@@ -172,7 +165,6 @@ class AuthFlowTests(unittest.TestCase):
         self.assertIs(dialog_class, module.EmbeddedAuthBrowserDialog)
 
     @unittest.skipUnless(sys.platform == "win32", "Device.getUUID/getOsVersion are Windows-only")
-    @patch("ankama_launcher_emulator.gui.add_account_dialog.run_in_background")
     @patch("ankama_launcher_emulator.gui.add_account_dialog.persist_managed_account")
     @patch("ankama_launcher_emulator.gui.add_account_dialog.store_shield_certificate")
     @patch("ankama_launcher_emulator.gui.add_account_dialog.validate_security_code")
@@ -183,7 +175,6 @@ class AuthFlowTests(unittest.TestCase):
         validate_security_code,
         store_shield_certificate,
         persist_managed_account,
-        run_in_background,
     ):
         dialog = AddAccountDialog(_ProxyStore())
         shield_dialog = MagicMock()
@@ -192,23 +183,22 @@ class AuthFlowTests(unittest.TestCase):
         shield_dialog_cls.return_value = shield_dialog
         validate_security_code.return_value = {"id": 42, "encodedCertificate": "abc"}
 
-        def run_task(task, on_success=None, on_error=None, parent=None):
-            del on_error, parent
+        def run_task(task, on_success=None, on_error=None):
+            del on_error
             result = task(None)
             if on_success is not None:
                 on_success(result)
 
-        run_in_background.side_effect = run_task
-
-        dialog._show_shield_dialog(
-            {
-                "access_token": "access-token",
-                "refresh_token": "refresh-token",
-                "account_id": 7,
-            },
-            "demo@example.com",
-            "Demo",
-        )
+        with patch.object(dialog, "_run_worker", side_effect=run_task):
+            dialog._show_shield_dialog(
+                {
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token",
+                    "account_id": 7,
+                },
+                "demo@example.com",
+                "Demo",
+            )
 
         validate_security_code.assert_called_once_with("access-token", "123456")
         store_shield_certificate.assert_called_once_with(

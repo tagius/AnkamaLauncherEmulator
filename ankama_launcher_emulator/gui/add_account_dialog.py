@@ -3,7 +3,7 @@
 import importlib
 import logging
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -21,7 +21,7 @@ from qfluentwidgets import (
 )
 
 from ankama_launcher_emulator.gui.shield_dialog import ShieldCodeDialog
-from ankama_launcher_emulator.gui.utils import run_in_background
+from ankama_launcher_emulator.gui.utils import Worker
 from ankama_launcher_emulator.haapi.account_meta import AccountMeta
 from ankama_launcher_emulator.haapi.account_persistence import (
     persist_managed_account,
@@ -87,42 +87,73 @@ class AddAccountDialog(QDialog):
         # a still-running worker.
         self._inflight: int = 0
         self._pending_done: int | None = None
+        self._cancelled: bool = False
+        # Threads are unparented so dialog deletion (WA_DeleteOnClose) cannot
+        # destroy a still-running QThread. We keep our own refs here and
+        # quit+wait on each before finalising done().
+        self._threads: list[QThread] = []
+        self._workers: list[Worker] = []
         self.setWindowTitle("Reconnect Account" if locked_login else "Add Account")
         self.setMinimumWidth(450)
         self._setup_ui()
 
     def _run_worker(self, task, on_success, on_error) -> None:
+        worker = Worker(task)
+        thread = QThread()  # no parent — owned by self._threads
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(thread.quit)
+
+        self._threads.append(thread)
+        self._workers.append(worker)
         self._inflight += 1
 
         def wrapped_success(result: object) -> None:
             try:
-                on_success(result)
+                if not self._cancelled:
+                    on_success(result)
             finally:
                 self._on_worker_done()
 
         def wrapped_error(err: object) -> None:
             try:
-                on_error(err)
+                if not self._cancelled:
+                    on_error(err)
             finally:
                 self._on_worker_done()
 
-        run_in_background(
-            task, on_success=wrapped_success, on_error=wrapped_error, parent=self
-        )
+        worker.success.connect(wrapped_success)
+        worker.error.connect(wrapped_error)
+        thread.start()
 
     def _on_worker_done(self) -> None:
         self._inflight -= 1
         if self._inflight == 0 and self._pending_done is not None:
             result = self._pending_done
             self._pending_done = None
-            super().done(result)
+            self._finalise_done(result)
+
+    def _finalise_done(self, result: int) -> None:
+        # Block until every worker thread has fully exited before letting
+        # WA_DeleteOnClose tear down the dialog. Without this the QThreads
+        # (no longer parented to dialog, but Qt would still observe them via
+        # cleanup) print "QThread: Destroyed while thread is still running"
+        # and abort.
+        for thread in self._threads:
+            thread.quit()
+            thread.wait(2000)
+        self._threads.clear()
+        self._workers.clear()
+        super().done(result)
 
     def done(self, result: int) -> None:
+        if result != QDialog.DialogCode.Accepted:
+            self._cancelled = True
         if self._inflight > 0:
             self._pending_done = result
             self.hide()
             return
-        super().done(result)
+        self._finalise_done(result)
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
