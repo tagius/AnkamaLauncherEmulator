@@ -37,6 +37,59 @@ def persist_managed_account(
     meta.set_meta(login, source="managed", alias=alias)
 
 
+_LOAD_DIAG_DUMPED = False
+
+
+def _dump_load_diagnostics() -> None:
+    """One-shot dump of meta entries + resolved folders + folder contents."""
+    global _LOAD_DIAG_DUMPED
+    if _LOAD_DIAG_DUMPED:
+        return
+    _LOAD_DIAG_DUMPED = True
+
+    from ankama_launcher_emulator.consts import (
+        API_KEY_FOLDER_PATH, ALT_API_KEY_FOLDER_PATH,
+        CERTIFICATE_FOLDER_PATH, ALT_CERTIFICATE_FOLDER_PATH,
+    )
+    from ankama_launcher_emulator.decrypter.device import Device
+    from ankama_launcher_emulator.haapi.account_meta import AccountMeta
+
+    logger.info("[LOAD/DIAG] ===== startup account diagnostics =====")
+    try:
+        logger.info(f"[LOAD/DIAG] Device.getUUID() = {Device.getUUID()}")
+    except Exception as err:
+        logger.info(f"[LOAD/DIAG] Device.getUUID() FAILED: {err!r}")
+
+    for folder, label in [
+        (API_KEY_FOLDER_PATH, "OFFICIAL keydata"),
+        (ALT_API_KEY_FOLDER_PATH, "ALT keydata"),
+        (CERTIFICATE_FOLDER_PATH, "OFFICIAL cert"),
+        (ALT_CERTIFICATE_FOLDER_PATH, "ALT cert"),
+    ]:
+        try:
+            files = sorted(os.listdir(folder))
+        except OSError as err:
+            logger.info(f"[LOAD/DIAG] {label} {folder}: {err!r}")
+            continue
+        logger.info(f"[LOAD/DIAG] {label} {folder}: {files}")
+
+    meta = AccountMeta()
+    for login, entry in meta.all_entries().items():
+        portable = entry.get("portable_mode")
+        has_uuid = bool(entry.get("fake_uuid"))
+        try:
+            uuid_active, cert_folder, key_folder, _, _ = CryptoHelper.get_crypto_context(login)
+            uuid_short = (uuid_active or "")[:8] + "…"
+        except Exception as err:
+            logger.info(f"[LOAD/DIAG] meta {login}: portable={portable} fake_uuid={has_uuid} -- get_crypto_context FAILED: {err!r}")
+            continue
+        logger.info(
+            f"[LOAD/DIAG] meta {login}: portable={portable} fake_uuid={has_uuid} "
+            f"uuid={uuid_short} key_folder={key_folder} cert_folder={cert_folder}"
+        )
+    logger.info("[LOAD/DIAG] ========================================")
+
+
 def list_all_api_keys() -> list:
     """Enumerate all known accounts across portable + official keydata folders.
 
@@ -47,6 +100,8 @@ def list_all_api_keys() -> list:
     from ankama_launcher_emulator.decrypter.device import Device
     from ankama_launcher_emulator.haapi.account_meta import AccountMeta
 
+    _dump_load_diagnostics()
+
     seen: set[str] = set()
     results: list = []
 
@@ -54,10 +109,23 @@ def list_all_api_keys() -> list:
     for login in meta.all_entries():
         try:
             uuid_active, _, key_folder, _, _ = CryptoHelper.get_crypto_context(login)
+        except Exception as err:
+            logger.warning(f"[LOAD] Skip {login}: get_crypto_context failed: {err!r}")
+            continue
+        try:
             results.append(CryptoHelper.getStoredApiKey(login, key_folder, uuid_active))
             seen.add(login)
-        except (StopIteration, FileNotFoundError, OSError) as err:
-            logger.warning(f"[LOAD] Skip {login}: {err}")
+        except StopIteration:
+            try:
+                listing = sorted(os.listdir(key_folder))
+            except OSError:
+                listing = ["<unreadable>"]
+            logger.warning(
+                f"[LOAD] Skip {login}: no decryptable .key matches login in "
+                f"{key_folder} (uuid={uuid_active[:8]}…, files={listing})"
+            )
+        except (FileNotFoundError, OSError) as err:
+            logger.warning(f"[LOAD] Skip {login}: {err!r}")
 
     try:
         for acc in CryptoHelper.getStoredApiKeys(API_KEY_FOLDER_PATH, Device.getUUID()):
