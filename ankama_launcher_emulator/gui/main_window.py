@@ -57,10 +57,7 @@ from ankama_launcher_emulator.haapi.account_meta import AccountMeta
 from ankama_launcher_emulator.haapi.account_persistence import (
     persist_managed_account,
 )
-from ankama_launcher_emulator.haapi.pkce_auth import (
-    ZaapPkceSession,
-    complete_embedded_login,
-)
+from ankama_launcher_emulator.haapi.pkce_auth import ZaapPkceSession
 from ankama_launcher_emulator.haapi.shield import (
     request_security_code,
     store_shield_certificate,
@@ -431,7 +428,7 @@ class MainWindow(QMainWindow):
         try:
             dialog_class = _load_embedded_auth_dialog_class()
             session = ZaapPkceSession()
-            dialog = dialog_class(session.auth_url, login, parent=self)
+            dialog = dialog_class(session.auth_url, login, session.code_verifier, parent=self)
         except (ImportError, RuntimeError, OSError) as exc:
             self._show_error(f"Embedded auth dialog unavailable: {exc}")
             self._set_panel_status("")
@@ -443,19 +440,28 @@ class MainWindow(QMainWindow):
             card.set_launch_enabled(True)
             return
 
-        auth_code = dialog.get_code()
-        if not auth_code:
+        tokens = dialog.get_tokens()
+        if not tokens:
+            err = dialog.get_token_error() or "Token exchange failed"
+            self._show_error(f"Re-authentication failed: {err}")
             self._set_panel_status("")
             card.set_launch_enabled(True)
             return
 
-        browser_cookies = dialog.get_cookies()
-
         def reauthenticate(on_progress: Callable[[str], None]) -> dict:
             on_progress("Signing in again...")
-            data = complete_embedded_login(
-                auth_code, session, login, cookies=browser_cookies
-            )
+            from ankama_launcher_emulator.haapi.pkce_auth import fetch_account_profile
+            account = fetch_account_profile(tokens["access_token"])
+            if not account.get("id"):
+                raise RuntimeError("Failed to get account info")
+            data = {
+                "access_token": tokens["access_token"],
+                "refresh_token": tokens.get("refresh_token"),
+                "account_id": account["id"],
+                "login": account.get("login", login),
+                "nickname": account.get("nickname", ""),
+                "security": account.get("security", []),
+            }
             on_progress("Requesting security code via email...")
             proxy_url = cast(
                 str | None,

@@ -186,24 +186,29 @@ class AddAccountDialog(QDialog):
                 f"Embedded auth dialog unavailable: {exc}"
             )
             return
+
         session = ZaapPkceSession()
-        dialog = ShieldBrowserDialog(session.auth_url, login, parent=self)
+        # Pass code_verifier so the dialog performs the /token exchange from
+        # inside Chromium — avoids AWS WAF TLS-fingerprint 403 that occurs
+        # when requests (OpenSSL) sends the exchange with a different JA3 hash.
+        dialog = ShieldBrowserDialog(
+            session.auth_url, login, session.code_verifier, parent=self
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             self._add_btn.setEnabled(True)
             self._status_label.setText("Browser login cancelled")
             return
 
-        code = dialog.get_code()
-        if not code:
+        tokens = dialog.get_tokens()
+        if not tokens:
             self._add_btn.setEnabled(True)
-            self._status_label.setText("Browser login cancelled")
+            err = dialog.get_token_error() or "Token exchange failed"
+            self._status_label.setText(f"Error: {err}")
             return
 
-        browser_cookies = dialog.get_cookies()
         self._status_label.setText("Completing browser login...")
 
         def task(_on_progress: object) -> dict:
-            tokens = session.exchange(code, cookies=browser_cookies)
             account = fetch_account_profile(tokens["access_token"])
             if not account.get("id"):
                 raise RuntimeError("Failed to get account info")
