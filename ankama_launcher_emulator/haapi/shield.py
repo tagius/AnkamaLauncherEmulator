@@ -61,8 +61,11 @@ def _make_session(proxy_url: str | None = None) -> requests.Session:
 
 
 def _zaap_headers(api_key: str) -> dict:
+    # APIKEY must be uppercase — Ankama's HAAPI auth middleware matches header
+    # name case-sensitively. Lowercase "apikey" silently falls back to anonymous
+    # and returns 403 "Unauthorized service '\Ankama\Shield'".
     return {
-        "apikey": api_key,
+        "APIKEY": api_key,
         "User-Agent": f"Zaap {ZAAP_VERSION}",
         "accept": "*/*",
         "accept-encoding": "gzip,deflate",

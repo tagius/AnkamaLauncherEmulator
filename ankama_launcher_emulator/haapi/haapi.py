@@ -71,7 +71,7 @@ class Haapi:
             self.zaap_session.mount("https://", adapter)
             self.zaap_session.mount("http://", adapter)
         self.zaap_headers = {
-            "apikey": self.api_key,
+            "APIKEY": self.api_key,
             "if-none-match": "null",
             "user-Agent": f"Zaap {ZAAP_VERSION}",
             "accept": "*/*",
@@ -126,7 +126,7 @@ class Haapi:
             return
 
         self.api_key = new_access
-        self.zaap_session.headers["apikey"] = new_access
+        self.zaap_session.headers["APIKEY"] = new_access
         if new_refresh:
             self.refresh_token = new_refresh
         self.refresh_date = now_ms

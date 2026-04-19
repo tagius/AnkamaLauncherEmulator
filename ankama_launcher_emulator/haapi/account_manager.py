@@ -30,7 +30,7 @@ def remove_account(login: str, api_key: str | None = None) -> None:
             requests.delete(
                 ANKAMA_API_DELETE_API_KEY,
                 headers={
-                    "apikey": api_key,
+                    "APIKEY": api_key,
                     "User-Agent": f"Zaap {ZAAP_VERSION}",
                 },
                 verify=False,
