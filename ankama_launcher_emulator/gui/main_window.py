@@ -540,11 +540,13 @@ class MainWindow(QMainWindow):
             initial_proxy_id=initial_proxy_id,
             initial_alias=initial_alias,
         )
-        accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        dialog.exec()
         dialog.request_delete()
         card.refresh_launch_button()
-        if accepted:
-            self._schedule_refresh()
+        # See comment in _open_add_account_dialog: premature exec() pop on
+        # Windows means we can't rely on the return code to know if the
+        # flow completed. Refresh unconditionally.
+        self._schedule_refresh()
 
     def _show_shield_recovery_dialog(
         self,
@@ -786,10 +788,13 @@ class MainWindow(QMainWindow):
         from ankama_launcher_emulator.gui.add_account_dialog import AddAccountDialog
 
         dialog = AddAccountDialog(self._proxy_store, parent=self)
-        accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        dialog.exec()
         dialog.request_delete()
-        if accepted:
-            self._schedule_refresh()
+        # Refresh regardless of exec() return value: on Windows WebEngine
+        # can pop the modal exec() early, after which the dialog finishes
+        # the flow in the background (Shield, persist). Unconditional
+        # refresh picks up the new account when that happens.
+        self._schedule_refresh()
 
     # --- Info bars ---
 

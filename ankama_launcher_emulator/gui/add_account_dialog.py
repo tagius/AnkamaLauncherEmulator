@@ -157,14 +157,15 @@ class AddAccountDialog(QDialog):
     def request_delete(self) -> None:
         """Caller-side teardown hook — safe replacement for deleteLater.
 
-        On Windows WebEngine can make the outer exec() return before
-        done() is invoked. If workers are still in flight, deferring the
-        real deleteLater until they drain prevents a queued DeferredDelete
-        from firing inside a nested ShieldCodeDialog.exec() and destroying
-        widgets that pending callbacks still reference.
+        On Windows WebEngine can make the outer exec() return before done()
+        is invoked. If workers are still in flight we keep the dialog alive
+        (hidden) so the flow — Shield request, code dialog, validate,
+        persist — can still complete in the background. Only after workers
+        drain do we finalise and deleteLater. We deliberately do NOT set
+        _cancelled here: cancelling would skip on_login_success and no
+        account would be added despite a successful login.
         """
         if self._inflight > 0:
-            self._cancelled = True
             self._delete_after_finalise = True
             if self._pending_done is None:
                 self._pending_done = QDialog.DialogCode.Rejected
