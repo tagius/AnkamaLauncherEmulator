@@ -477,13 +477,23 @@ def _run(args: argparse.Namespace) -> int:
     # in-flight workers drain, avoiding the Windows premature-exec race.
     dialog.request_delete()
 
-    # Drain pending async work (DeferredDelete, profile-worker success, etc.)
-    # so destruction events, if any, surface before we exit.
+    # Drain pending async work (DeferredDelete, profile-worker success,
+    # Shield email + user input + validate HTTP). Loop until dialog is
+    # destroyed OR _inflight drains AND nothing left to do, else timeout.
+    # 120s is enough for: email delivery + user typing code + validate call.
     import time
-    deadline = time.time() + 3.0
+    deadline = time.time() + 120.0
     while time.time() < deadline:
         app.processEvents()
+        if not _is_alive(dialog):
+            dbg.info("[drain] dialog destroyed — flow complete")
+            break
+        if getattr(dialog, "_inflight", 0) == 0 and not dialog.isVisible():
+            dbg.info("[drain] inflight drained and dialog hidden — done")
+            break
         time.sleep(0.05)
+    else:
+        dbg.info("[drain] 120s deadline hit — forcing teardown")
     host.close()
     return 0 if rc == QDialog.DialogCode.Accepted else 1
 
