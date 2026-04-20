@@ -302,7 +302,11 @@ class AddAccountDialog(QDialog):
         # inside Chromium — avoids AWS WAF TLS-fingerprint 403 that occurs
         # when requests (OpenSSL) sends the exchange with a different JA3 hash.
         dialog = ShieldBrowserDialog(
-            session.auth_url, login, session.code_verifier, parent=self
+            session.auth_url,
+            login,
+            session.code_verifier,
+            parent=self,
+            proxy_url=proxy_url,
         )
         result = dialog.exec()
         tokens = dialog.get_tokens()

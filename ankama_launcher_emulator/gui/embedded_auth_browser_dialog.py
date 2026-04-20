@@ -10,7 +10,7 @@ qt-token-result:// approach), so the title channel is used instead.
 
 import json
 import logging
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urlparse
 
 from PyQt6.QtCore import QTimer, QUrl, pyqtSignal
 from PyQt6.QtWidgets import QDialog, QVBoxLayout
@@ -88,6 +88,7 @@ class EmbeddedAuthBrowserDialog(QDialog):
         login: str,
         code_verifier: str | None = None,
         parent=None,
+        proxy_url: str | None = None,
     ):
         super().__init__(parent)
         # Caller schedules deleteLater() AFTER exec() returns — tearing down
@@ -100,6 +101,16 @@ class EmbeddedAuthBrowserDialog(QDialog):
         self._tokens: dict | None = None
         self._token_error: str | None = None
         self._cookies: dict[str, str] = {}
+
+        # Route Chromium through the same SOCKS5 exit as the Python HAAPI
+        # session. Otherwise /Account/Account records the host's real IP as
+        # login_ip and the subsequent /Shield/SecurityCode call from the
+        # proxied requests session is rejected ("Unauthorized service
+        # '\Ankama\Shield'") because the IPs don't match. QtWebEngine has no
+        # per-profile proxy API for SOCKS5 — application proxy is the only
+        # supported channel — so we save the prior proxy and restore it in
+        # done() to avoid bleeding into the rest of the app.
+        self._previous_proxy = self._apply_socks5_proxy(proxy_url)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -126,6 +137,32 @@ class EmbeddedAuthBrowserDialog(QDialog):
         self._browser.setPage(self._page)
         layout.addWidget(self._browser, 1)
         self._browser.setUrl(QUrl(auth_url))
+
+    @staticmethod
+    def _apply_socks5_proxy(proxy_url: str | None):
+        if not proxy_url:
+            return None
+        parsed = urlparse(proxy_url)
+        if parsed.scheme not in ("socks5", "socks5h") or not parsed.hostname:
+            logger.warning("[PKCE/browser] unsupported proxy scheme: %s", parsed.scheme)
+            return None
+        from PyQt6.QtNetwork import QNetworkProxy
+
+        previous = QNetworkProxy.applicationProxy()
+        proxy = QNetworkProxy(
+            QNetworkProxy.ProxyType.Socks5Proxy,
+            parsed.hostname,
+            parsed.port or 1080,
+            parsed.username or "",
+            parsed.password or "",
+        )
+        QNetworkProxy.setApplicationProxy(proxy)
+        logger.info(
+            "[PKCE/browser] Chromium routed via SOCKS5 %s:%s",
+            parsed.hostname,
+            parsed.port,
+        )
+        return previous
 
     # ------------------------------------------------------------------
     # Cookie capture
@@ -257,5 +294,11 @@ class EmbeddedAuthBrowserDialog(QDialog):
             self._profile = None
             profile.setParent(None)
             QTimer.singleShot(0, profile.deleteLater)
+
+        if self._previous_proxy is not None:
+            from PyQt6.QtNetwork import QNetworkProxy
+
+            QNetworkProxy.setApplicationProxy(self._previous_proxy)
+            self._previous_proxy = None
 
         super().done(result)
