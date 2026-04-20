@@ -65,3 +65,49 @@ Install uv:
 
 ```bash
 pip install uv
+
+---
+
+## Development
+
+Clone the repository and install dependencies:
+
+```bash
+git clone https://github.com/Valentin-alix/AnkamaLauncherEmulator
+cd AnkamaLauncherEmulator
+uv sync
+```
+
+### Usage
+
+#### Run from source
+
+```bash
+uv run main.py
+```
+
+### Packaging
+
+Build a standalone `.exe` with PyInstaller or Github Action:
+
+```bash
+uv run pyinstaller main.spec
+```
+
+The output will be in the `dist/` folder.
+
+#### Regenerate Thrift bindings
+
+If `resources/zaap.thrift` changes, regenerate the Python bindings:
+
+```bash
+thrift --gen py resources/zaap.thrift && mv gen-py ankama_launcher_emulator/gen_zaap
+```
+
+#### Inspect the Ankama Launcher source
+
+To explore the launcher's internals, extract the `app.asar` bundle:
+
+```bash
+asar extract "C:/Program Files/Ankama/Ankama Launcher/resources/app.asar" "<output_dir>"
+```
