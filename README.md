@@ -1,6 +1,6 @@
 # Ankama Launcher Emulator
 
-A tool that emulates the Ankama Launcher to launch **Dofus 3** and **Dofus RETRO** directly — without needing the official launcher running. Supports multi-account management, per-account SOCKS5 proxies, and network interface selection, all from a Qt desktop application.
+A tool that emulates the Launcher to launch **D3** and **DRETRO** directly — without needing the official launcher running. Supports multi-account management, handles official Shield login (no bypass), per-account SOCKS5 proxies, and network interface selection, all from a Qt desktop application with Qt-Webengine for login.
 
 ![alt text](docs/screenshot.png)
 
@@ -20,7 +20,7 @@ Then you access this beautiful (no) interface
 
 ## How it works
 
-The official Ankama Launcher stores your credentials encrypted in `%APPDATA%\zaap\`. This tool:
+The official Launcher stores your credentials encrypted in `%APPDATA%\zaap\`. This tool:
 
 1. Reads and decrypts those stored API keys using your machine's UUID
 2. Starts a local Thrift server on port `26116` (the same port the game expects from the launcher)
@@ -30,11 +30,15 @@ The official Ankama Launcher stores your credentials encrypted in `%APPDATA%\zaa
 
 You must have logged in at least once through the official Ankama Launcher so that your credentials are stored locally.
 
+Additional feature:
+- Add new account via alternative launcher
+- Per account HWID
+
 ---
 
 ## Requirements
 
-- **Dofus 3** or **RETRO** installed via the official Ankama Launcher (at least one account logged in)
+- **D3** or **DRETRO** installed via the official Ankama Launcher (at least one account logged in)
 - **Python >= 3.12**
 - **uv** — fast Python package manager
 - **cytrus-v6** *(optional)* — enables automatic game updates at launch time
@@ -84,8 +88,10 @@ Select the game (Dofus 3 or Dofus Retro) using the cards at the top. Each stored
 | Option              | Description                                                                |
 | ------------------- | -------------------------------------------------------------------------- |
 | **Local interface** | Select which network interface Dofus will use (useful for multi-IP setups) |
-| **Proxy URL**       | Optional SOCKS5 proxy for this account (`socks5://user:pass@host:port`)    |
+| ***Official/Portable** | Toggle for using official launcher certificate or per account HWID      |
+| **Proxy**           | Select SOCKS5 proxy for this account (Add proxy via the proxy menu button) |
 | **Launch**          | Start a Dofus 3 or Retro instance for this account                         |
+| **X**               | Delete selected portable accounts                                          |
 
 If `cytrus-v6` is installed, a download banner will appear with progress before the game starts while it checks/downloads updates.
 
@@ -132,11 +138,3 @@ asar extract "C:/Program Files/Ankama/Ankama Launcher/resources/app.asar" "<outp
 ```
 
 ---
-
-## Use as a library
-
-Add the package to your own project:
-
-```bash
-pip install git+https://github.com/Valentin-alix/AnkamaLauncherEmulator
-```
