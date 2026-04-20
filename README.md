@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/github/v/release/Valentin-alix/AnkamaLauncherEmulator?style=for-the-badge" />
-  <img src="https://img.shields.io/github/downloads/Valentin-alix/AnkamaLauncherEmulator/total?style=for-the-badge" />
-  <img src="https://img.shields.io/github/stars/Valentin-alix/AnkamaLauncherEmulator?style=for-the-badge" />
-  <img src="https://img.shields.io/github/issues/Valentin-alix/AnkamaLauncherEmulator?style=for-the-badge" />
-  <img src="https://img.shields.io/github/license/Valentin-alix/AnkamaLauncherEmulator?style=for-the-badge" />
+  <img src="https://img.shields.io/github/v/release/tagius/AnkamaLauncherEmulator?style=for-the-badge" />
+  <img src="https://img.shields.io/github/downloads/tagius/AnkamaLauncherEmulator/total?style=for-the-badge" />
+  <img src="https://img.shields.io/github/stars/tagius/AnkamaLauncherEmulator?style=for-the-badge" />
+  <img src="https://img.shields.io/github/issues/tagius/AnkamaLauncherEmulator?style=for-the-badge" />
+  <img src="https://img.shields.io/github/license/tagius/AnkamaLauncherEmulator?style=for-the-badge" />
   <img src="https://img.shields.io/badge/python-3.12+-blue?style=for-the-badge" />
 </p>
 
