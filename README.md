@@ -1,4 +1,4 @@
-# Ankama Launcher Emulator
+# AnkAlt Launcher
 
 A tool that emulates the Launcher to launch **D3** and **DRETRO** directly — without needing the official launcher running. Supports multi-account management, handles official Shield login (no bypass), per-account SOCKS5 proxies, and network interface selection, all from a Qt desktop application with Qt-Webengine for login.
 
