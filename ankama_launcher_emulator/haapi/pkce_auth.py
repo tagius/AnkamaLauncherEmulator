@@ -285,6 +285,15 @@ def programmatic_pkce_login(
         len(waf_token or ""), (waf_token or "")[:16],
     )
 
+    # Diagnostic: compare requests' exit IP to the rnet solver's exit IP
+    # (logged as "[WAF] rnet exit IP"). If they differ, the WAF token was
+    # issued to a different IP than the one doing this GET → WAF will 403.
+    try:
+        ip_resp = session.get("https://api.ipify.org", timeout=10, verify=False)
+        logger.info("[PKCE-PROG] step0b requests exit IP = %s", ip_resp.text.strip())
+    except Exception as exc:
+        logger.warning("[PKCE-PROG] step0b requests IP probe failed: %s", exc)
+
     # Step 1: GET auth page
     progress("Starting authentication...")
     auth_url = (
