@@ -270,6 +270,21 @@ def programmatic_pkce_login(
         h_url = to_socks5h(proxy_url)
         session.proxies = {"http": h_url, "https": h_url}
 
+    # Step 0: Pre-solve AWS WAF before touching auth.ankama.com. Fresh / flagged
+    # IPs are served a WAF JS challenge on the first GET of /login/ankama, so
+    # we must arrive with a valid aws-waf-token cookie already set. The CSRF
+    # `state` is only used as a decorative `location` in the fingerprint —
+    # passing an empty string is accepted by the solver.
+    progress("Solving AWS WAF challenge...")
+    from ankama_launcher_emulator.haapi.aws_waf_bypass import get_aws_waf_token
+    logger.info("[PKCE-PROG] step0 calling get_aws_waf_token (pre-GET)")
+    waf_token = get_aws_waf_token("", proxy_url=proxy_url)
+    session.cookies.set("aws-waf-token", waf_token, domain="auth.ankama.com", path="/")
+    logger.info(
+        "[PKCE-PROG] step0 WAF token injected (len=%d, head=%r)",
+        len(waf_token or ""), (waf_token or "")[:16],
+    )
+
     # Step 1: GET auth page
     progress("Starting authentication...")
     auth_url = (
@@ -315,17 +330,6 @@ def programmatic_pkce_login(
         raise RuntimeError("Failed to extract CSRF state from login page")
     state = state_match.group(1)
     logger.info("[PKCE-PROG] step2 CSRF state extracted (len=%d)", len(state))
-
-    # Step 2b: Obtain AWS WAF token (same flow as Bubble.D3 AwsBypassService)
-    progress("Solving AWS WAF challenge...")
-    from ankama_launcher_emulator.haapi.aws_waf_bypass import get_aws_waf_token
-    logger.info("[PKCE-PROG] step2b calling get_aws_waf_token")
-    waf_token = get_aws_waf_token(state)
-    session.cookies.set("aws-waf-token", waf_token, domain="auth.ankama.com", path="/")
-    logger.info(
-        "[PKCE-PROG] step2b WAF token injected (len=%d, head=%r)",
-        len(waf_token or ""), (waf_token or "")[:16],
-    )
 
     # Step 3: POST credentials
     progress("Submitting credentials...")

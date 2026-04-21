@@ -1,23 +1,31 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_all
+
+# rnet ships a Rust-compiled native extension (.pyd/.so) plus submodules
+# that PyInstaller's static analysis can miss. collect_all pulls the
+# native binary, submodules, and any data files in one go.
+_rnet_datas, _rnet_binaries, _rnet_hiddenimports = collect_all('rnet')
+
 
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
+    binaries=_rnet_binaries,
     datas=[
         ('ankama_launcher_emulator/server/dofus3/script.js', 'ankama_launcher_emulator/server/dofus3'),
         ('ankama_launcher_emulator/server/retro/script.js', 'ankama_launcher_emulator/server/retro'),
+        ('ankama_launcher_emulator/haapi/webgl.json', 'ankama_launcher_emulator/haapi'),
         ('resources/Dofus3.png', 'resources'),
         ('resources/DofusRetro.png', 'resources'),
         ('resources/app.ico', 'resources'),
-    ],
+    ] + _rnet_datas,
     hiddenimports=[
         'ankama_launcher_emulator.gui.embedded_auth_browser_dialog',
         'ankama_launcher_emulator.gui.shield_browser_dialog',
         'PyQt6.QtWebEngineCore',
         'PyQt6.QtWebEngineWidgets',
-    ],
+    ] + _rnet_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

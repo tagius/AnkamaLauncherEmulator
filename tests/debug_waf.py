@@ -24,6 +24,7 @@ Usage
     python tests/debug_waf.py --solve-switch
     python tests/debug_waf.py --solve-switch-patched
     python tests/debug_waf.py --solve-full
+    python tests/debug_waf.py --repro-403 --proxy socks5://user:pass@host:port
     python tests/debug_waf.py --interactive     # menu-driven
 
 Credentials come from tests/.env (ANKAMA_TEST_LOGIN/PASSWORD) when the
@@ -358,6 +359,134 @@ def solve_full_pkce() -> int:
 
 
 # ───────────────────────────────────────────────────────────────────────────
+# Fresh-IP 403 reproduction + option-B fix validation
+# ───────────────────────────────────────────────────────────────────────────
+
+
+_PKCE_AUTH_URL_TEMPLATE = (
+    ANKAMA_LOGIN_PAGE
+    + "?code_challenge={cc}"
+    + "&redirect_uri=zaap://login&client_id=102&direct=true"
+    + "&origin_tracker=https://www.ankama-launcher.com/launcher"
+)
+
+_BROWSERY_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "fr,fr-FR;q=0.8,en-US;q=0.5,en;q=0.3",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+
+def repro_403(proxy: str) -> int:
+    """Reproduce the fresh-IP WAF 403 through a proxy, then validate the
+    option-B fix (pre-solve WAF before GET).
+
+    Phase 1 (bug repro): plain GET /login/ankama, no WAF cookie.
+        expected: HTTP 403 + CloudFront "Request blocked" body.
+    Phase 2 (fix verify): call get_aws_waf_token first, inject cookie, retry GET.
+        expected: HTTP 200 + CSRF state present.
+
+    Returns 0 iff both phases match their expectation.
+    """
+    import requests
+    from ankama_launcher_emulator.utils.proxy import to_socks5h, verify_proxy_ip
+
+    dbg.banner("REPRO: fresh-IP /login/ankama 403 via proxy")
+    dbg.info(f"proxy: {proxy}")
+
+    try:
+        exit_ip = verify_proxy_ip(proxy)
+        dbg.ok(f"proxy reachable, exit IP = {exit_ip}")
+    except Exception as exc:
+        dbg.fail(f"proxy unreachable: {exc}")
+        return 1
+
+    socks5h = to_socks5h(proxy)
+    proxies = {"http": socks5h, "https": socks5h}
+    url = _PKCE_AUTH_URL_TEMPLATE.format(cc="x" * 43)
+
+    # Phase 1 — naked GET
+    dbg.banner("PHASE 1 — bug repro (GET without WAF cookie)")
+    session_a = requests.Session()
+    session_a.proxies = proxies
+    try:
+        resp_a = session_a.get(
+            url, headers=_BROWSERY_HEADERS, allow_redirects=True, timeout=20, verify=False,
+        )
+    except Exception as exc:
+        dbg.fail(f"network error: {exc}")
+        return 1
+
+    body_a = resp_a.text or ""
+    dbg.info(f"HTTP {resp_a.status_code}, {len(body_a)} bytes, url = {resp_a.url}")
+    state_a = re.search(r'name="state"\s+value="([^"]+)"', body_a)
+    awswaf_hits = re.findall(r"[a-z0-9.-]+\.awswaf\.com", body_a)
+    is_cloudfront_block = (
+        resp_a.status_code == 403
+        and ("Request blocked" in body_a or "could not be satisfied" in body_a)
+    )
+    is_waf_challenge = bool(awswaf_hits) and not state_a
+
+    if state_a:
+        dbg.fail("phase 1 got CSRF state — proxy IP is already trusted, cannot repro")
+        dbg.info("try a different proxy exit to get a fresh/flagged IP")
+        return 1
+    if is_cloudfront_block:
+        dbg.ok("phase 1 matches bug signature: 403 CloudFront block (no CSRF)")
+    elif is_waf_challenge:
+        dbg.ok(
+            f"phase 1 matches bug signature: WAF challenge page "
+            f"(status={resp_a.status_code}, awswaf refs: {sorted(set(awswaf_hits))[:3]})"
+        )
+    else:
+        dbg.fail(
+            f"phase 1 unexpected: status={resp_a.status_code}, "
+            f"no CSRF, no awswaf refs. body head={body_a[:200]!r}"
+        )
+        return 1
+
+    # Phase 2 — pre-solve WAF, inject cookie, retry GET
+    dbg.banner("PHASE 2 — fix verify (pre-solve WAF, then GET)")
+    from ankama_launcher_emulator.haapi.aws_waf_bypass import get_aws_waf_token
+
+    try:
+        token = get_aws_waf_token("", proxy_url=proxy)
+    except Exception as exc:
+        dbg.fail(f"WAF solver failed: {exc}")
+        traceback.print_exc()
+        return 1
+    dbg.ok(f"aws-waf-token obtained (len={len(token)}, head={token[:24]}…)")
+
+    session_b = requests.Session()
+    session_b.proxies = proxies
+    session_b.cookies.set("aws-waf-token", token, domain="auth.ankama.com", path="/")
+    try:
+        resp_b = session_b.get(
+            url, headers=_BROWSERY_HEADERS, allow_redirects=True, timeout=20, verify=False,
+        )
+    except Exception as exc:
+        dbg.fail(f"network error on retry: {exc}")
+        return 1
+
+    body_b = resp_b.text or ""
+    dbg.info(f"HTTP {resp_b.status_code}, {len(body_b)} bytes, url = {resp_b.url}")
+    state_b = re.search(r'name="state"\s+value="([^"]+)"', body_b)
+
+    if resp_b.status_code == 200 and state_b:
+        dbg.ok(f"phase 2 success: 200 + CSRF state (len={len(state_b.group(1))})")
+        dbg.banner("VERDICT")
+        dbg.ok("option B confirmed: pre-solving WAF yields a good CSRF page")
+        return 0
+
+    dbg.fail(
+        f"phase 2 failed: status={resp_b.status_code}, "
+        f"csrf_present={bool(state_b)}, body head={body_b[:200]!r}"
+    )
+    return 1
+
+
+# ───────────────────────────────────────────────────────────────────────────
 # Interactive menu
 # ───────────────────────────────────────────────────────────────────────────
 
@@ -369,6 +498,7 @@ _MENU = """
   [4] solve Switch3301 as-is  — wrong key, expected 403 (framework check)
   [5] solve Switch3301 patched— Ankama key + signal name
   [6] solve full PKCE         — full login using patched solver
+  [7] repro 403 + verify fix  — fresh-IP 403 repro via proxy, option-B validation
   [q] quit
 """
 
@@ -392,6 +522,12 @@ def interactive() -> int:
                 solve_switch(patched=True)
             elif choice == "6":
                 solve_full_pkce()
+            elif choice == "7":
+                proxy = input("proxy (socks5://user:pass@host:port)> ").strip()
+                if proxy:
+                    repro_403(proxy)
+                else:
+                    print("no proxy given — skipped")
             else:
                 print(f"unknown: {choice!r}")
         except KeyboardInterrupt:
@@ -412,6 +548,7 @@ def main() -> int:
     p.add_argument("--solve-switch",         action="store_true", help="run Switch3301 as-is")
     p.add_argument("--solve-switch-patched", action="store_true", help="run Switch3301 with Ankama key+name")
     p.add_argument("--solve-full",           action="store_true", help="full PKCE login with patched solver")
+    p.add_argument("--repro-403",            action="store_true", help="reproduce fresh-IP 403 + verify option-B fix (requires --proxy)")
     p.add_argument("--proxy",                help="socks5://host:port or http://host:port")
     p.add_argument("--interactive", "-i",    action="store_true", help="menu mode")
     args = p.parse_args()
@@ -419,6 +556,7 @@ def main() -> int:
     if args.interactive or not any([
         args.probe, args.probe_page, args.solve_native,
         args.solve_switch, args.solve_switch_patched, args.solve_full,
+        args.repro_403,
     ]):
         return interactive()
 
@@ -429,6 +567,11 @@ def main() -> int:
     if args.solve_switch:         rc |= solve_switch(patched=False, proxy=args.proxy)
     if args.solve_switch_patched: rc |= solve_switch(patched=True,  proxy=args.proxy)
     if args.solve_full:           rc |= solve_full_pkce()
+    if args.repro_403:
+        if not args.proxy:
+            dbg.fail("--repro-403 requires --proxy")
+            return 1
+        rc |= repro_403(args.proxy)
     return rc
 
 
