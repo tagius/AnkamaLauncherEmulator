@@ -123,9 +123,6 @@ class MainWindow(QMainWindow):
             f"CardWidget#warningCard {{ background-color: {PANEL_ALT_HEXA}; border: 1px solid {BORDER_HEXA}; border-radius: 18px; }}"
             f"CardWidget#emptyStateCard {{ background-color: {PANEL_BG_HEXA}; border: 1px solid {BORDER_HEXA}; border-radius: 20px; }}"
             f"CardWidget#emptyStateCard BodyLabel {{ color: {TEXT_MUTED_HEXA}; }}"
-            "PushButton, PrimaryPushButton {"
-            "border-radius: 9999px;"
-            "}"
         )
 
         central = QWidget()

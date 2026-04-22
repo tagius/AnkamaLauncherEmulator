@@ -1,6 +1,7 @@
 import contextlib
 import io
 import sys
+from typing import cast
 
 from PyQt6.QtCore import Qt, QCoreApplication, qInstallMessageHandler
 from PyQt6.QtGui import QIcon
@@ -27,6 +28,7 @@ qInstallMessageHandler(_qt_msg_filter)
 
 from ankama_launcher_emulator.consts import RESOURCES
 from ankama_launcher_emulator.gui.main_window import MainWindow
+from ankama_launcher_emulator.gui.style import apply_app_style
 from ankama_launcher_emulator.haapi.account_persistence import list_all_api_keys
 from ankama_launcher_emulator.server.handler import AnkamaLauncherHandler
 from ankama_launcher_emulator.server.server import AnkamaLauncherServer
@@ -39,6 +41,8 @@ def ensure_app() -> QApplication:
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)
+    app = cast(QApplication, app)
+    apply_app_style(app)
     return app
 
 
@@ -57,6 +61,7 @@ def run_gui() -> None:
 
     app = ensure_app()
     setTheme(Theme.DARK)
+    apply_app_style(app)
     set_app_icon(app)
 
     window = MainWindow(server, accounts, interfaces)

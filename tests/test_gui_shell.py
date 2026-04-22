@@ -96,6 +96,8 @@ class GuiShellTests(unittest.TestCase):
         self.assertTrue(banner._loading_movie.isValid())
         self.assertEqual(banner._progress_bar.maximum(), 5)
         self.assertEqual(banner._progress_bar.value(), 2)
+        self.assertEqual(banner._progress_label.text(), "Downloading update...")
+        self.assertNotIn("2 / 5", banner._progress_label.text())
         banner.set_status("")
         self.assertFalse(banner.isVisible())
 

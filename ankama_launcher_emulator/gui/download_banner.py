@@ -6,9 +6,20 @@ from PyQt6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from qfluentwidgets import CaptionLabel, ProgressBar
 
 from ankama_launcher_emulator.consts import RESOURCES
-from ankama_launcher_emulator.gui.consts import BORDER_HEXA, PANEL_ALT_HEXA, TEXT_MUTED_HEXA
+from ankama_launcher_emulator.gui.consts import (
+    BORDER_HEXA,
+    ORANGE_HEXA,
+    PANEL_ALT_HEXA,
+    TEXT_MUTED_HEXA,
+)
 
-_STEP_RE = re.compile(r"(\d+)\s*/\s*(\d+)")
+_STEP_RE = re.compile(r"\(?\s*(\d+)\s*/\s*(\d+)\s*\)?")
+
+
+def _strip_step_text(text: str, match: re.Match[str]) -> str:
+    stripped = f"{text[:match.start()]}{text[match.end():]}".strip()
+    stripped = re.sub(r"\s{2,}", " ", stripped)
+    return re.sub(r"\s+([,.;:])", r"\1", stripped)
 
 
 class DownloadBanner(QWidget):
@@ -33,6 +44,8 @@ class DownloadBanner(QWidget):
         self._progress_bar.setRange(0, 100)
         self._progress_bar.setValue(0)
         self._progress_bar.setFixedHeight(6)
+        self._progress_bar.setCustomBarColor(ORANGE_HEXA, ORANGE_HEXA)
+        self._progress_bar.setCustomBackgroundColor(BORDER_HEXA, BORDER_HEXA)
         progress_row.addWidget(self._progress_bar, 1)
         layout.addLayout(progress_row)
 
@@ -62,12 +75,13 @@ class DownloadBanner(QWidget):
             return
         self.setVisible(True)
         self._loading_movie.start()
-        self._progress_label.setText(text)
         match = _STEP_RE.search(text)
         if match:
+            self._progress_label.setText(_strip_step_text(text, match))
             current, total = int(match.group(1)), int(match.group(2))
             if total > 0:
                 self._progress_bar.setRange(0, total)
                 self._progress_bar.setValue(current)
                 return
+        self._progress_label.setText(text)
         self._progress_bar.setRange(0, 0)
