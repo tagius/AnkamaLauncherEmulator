@@ -17,8 +17,30 @@ from qfluentwidgets import (
     ScrollArea,
 )
 
+from ankama_launcher_emulator.gui.consts import (
+    APP_BG_HEXA,
+    BORDER_HEXA,
+    ORANGE_HEXA,
+    PANEL_ALT_HEXA,
+    PANEL_BG_HEXA,
+    TEXT_MUTED_HEXA,
+)
 from ankama_launcher_emulator.gui.utils import run_in_background
 from ankama_launcher_emulator.utils.proxy_store import ProxyStore
+
+CONTROL_HEIGHT = 28
+
+
+def _compact_control_style(kind: str = "PushButton") -> str:
+    return (
+        f"{kind} {{"
+        f"background-color: {PANEL_ALT_HEXA};"
+        f"border: 1px solid {BORDER_HEXA};"
+        "border-radius: 14px;"
+        "padding: 2px 10px;"
+        "}"
+        f"{kind}:hover {{ border-color: {ORANGE_HEXA}; }}"
+    )
 
 
 class _ProxyRow(CardWidget):
@@ -38,9 +60,18 @@ class _ProxyRow(CardWidget):
         self._store = store
         self._dialog = parent
 
+        self.setStyleSheet(
+            "CardWidget {"
+            f"background-color: {PANEL_BG_HEXA};"
+            f"border: 1px solid {BORDER_HEXA};"
+            "border-radius: 14px;"
+            "}"
+            f"CardWidget CaptionLabel {{ color: {TEXT_MUTED_HEXA}; }}"
+        )
+
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 4, 10, 4)
+        layout.setSpacing(6)
 
         self._name_label = BodyLabel(name)
         self._name_label.setFixedWidth(120)
@@ -56,16 +87,22 @@ class _ProxyRow(CardWidget):
 
         self._test_btn = PushButton("Test")
         self._test_btn.setFixedWidth(60)
+        self._test_btn.setFixedHeight(CONTROL_HEIGHT)
+        self._test_btn.setStyleSheet(_compact_control_style())
         self._test_btn.clicked.connect(self._on_test)
         layout.addWidget(self._test_btn)
 
         self._edit_btn = PushButton("Edit")
         self._edit_btn.setFixedWidth(60)
+        self._edit_btn.setFixedHeight(CONTROL_HEIGHT)
+        self._edit_btn.setStyleSheet(_compact_control_style())
         self._edit_btn.clicked.connect(self._on_edit)
         layout.addWidget(self._edit_btn)
 
         self._del_btn = PushButton("Del")
         self._del_btn.setFixedWidth(50)
+        self._del_btn.setFixedHeight(CONTROL_HEIGHT)
+        self._del_btn.setStyleSheet(_compact_control_style())
         self._del_btn.clicked.connect(self._on_delete)
         layout.addWidget(self._del_btn)
 
@@ -115,26 +152,39 @@ class _ProxyEditDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Edit Proxy")
         self.setMinimumWidth(400)
+        self.setStyleSheet(
+            "QDialog {"
+            f"background-color: {APP_BG_HEXA};"
+            "}"
+            f"QDialog BodyLabel {{ color: #f3f3f3; }}"
+            f"QDialog LineEdit {{ background-color: {PANEL_ALT_HEXA}; border: 1px solid {BORDER_HEXA}; border-radius: 14px; padding: 2px 10px; }}"
+        )
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(8)
+        layout.setContentsMargins(14, 14, 14, 14)
 
         layout.addWidget(BodyLabel("Name"))
         self._name_input = LineEdit()
         self._name_input.setText(name)
+        self._name_input.setFixedHeight(CONTROL_HEIGHT)
         layout.addWidget(self._name_input)
 
         layout.addWidget(BodyLabel("URL"))
         self._url_input = LineEdit()
         self._url_input.setText(url)
         self._url_input.setPlaceholderText("socks5://user:pass@host:port")
+        self._url_input.setFixedHeight(CONTROL_HEIGHT)
         layout.addWidget(self._url_input)
 
         btn_row = QHBoxLayout()
         save_btn = PrimaryPushButton("Save")
+        save_btn.setFixedHeight(CONTROL_HEIGHT)
+        save_btn.setStyleSheet(_compact_control_style("PrimaryPushButton"))
         save_btn.clicked.connect(self.accept)
         cancel_btn = PushButton("Cancel")
+        cancel_btn.setFixedHeight(CONTROL_HEIGHT)
+        cancel_btn.setStyleSheet(_compact_control_style())
         cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(save_btn)
         btn_row.addWidget(cancel_btn)
@@ -152,6 +202,13 @@ class ProxyDialog(QDialog):
         self._store = store
         self.setWindowTitle("Proxy Library")
         self.setMinimumSize(700, 400)
+        self.setStyleSheet(
+            "QDialog {"
+            f"background-color: {APP_BG_HEXA};"
+            "}"
+            f"QDialog BodyLabel {{ color: #f3f3f3; }}"
+            f"QDialog CaptionLabel {{ color: {TEXT_MUTED_HEXA}; }}"
+        )
         self._setup_ui()
         self._refresh_list()
 
@@ -165,6 +222,8 @@ class ProxyDialog(QDialog):
         header.addWidget(BodyLabel("Manage your proxies"))
         header.addStretch()
         add_btn = PrimaryPushButton("+ Add Proxy")
+        add_btn.setFixedHeight(CONTROL_HEIGHT)
+        add_btn.setStyleSheet(_compact_control_style("PrimaryPushButton"))
         add_btn.clicked.connect(self._on_add)
         header.addWidget(add_btn)
         layout.addLayout(header)
@@ -195,6 +254,8 @@ class ProxyDialog(QDialog):
 
         # Close
         close_btn = PushButton("Close")
+        close_btn.setFixedHeight(CONTROL_HEIGHT)
+        close_btn.setStyleSheet(_compact_control_style())
         close_btn.clicked.connect(self.accept)
         layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
 

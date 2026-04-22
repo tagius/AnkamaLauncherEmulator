@@ -10,7 +10,6 @@ from ankama_launcher_emulator.gui.consts import (
     BORDER_HEXA,
     ORANGE_HEXA,
     PANEL_ALT_HEXA,
-    TEXT_MUTED_HEXA,
 )
 
 _STEP_RE = re.compile(r"\(?\s*(\d+)\s*/\s*(\d+)\s*\)?")
@@ -27,23 +26,23 @@ class DownloadBanner(QWidget):
         super().__init__(parent)
         self.setObjectName("statusStrip")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(5)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(6)
 
         progress_row = QHBoxLayout()
-        progress_row.setSpacing(8)
+        progress_row.setSpacing(10)
 
         self._loading_label = QLabel()
-        self._loading_label.setFixedSize(18, 18)
+        self._loading_label.setFixedSize(28, 28)
         self._loading_movie = QMovie(str(RESOURCES / "load.gif"))
-        self._loading_movie.setScaledSize(QSize(18, 18))
+        self._loading_movie.setScaledSize(QSize(28, 28))
         self._loading_label.setMovie(self._loading_movie)
         progress_row.addWidget(self._loading_label)
 
         self._progress_bar = ProgressBar()
         self._progress_bar.setRange(0, 100)
         self._progress_bar.setValue(0)
-        self._progress_bar.setFixedHeight(6)
+        self._progress_bar.setFixedHeight(10)
         self._progress_bar.setCustomBarColor(ORANGE_HEXA, ORANGE_HEXA)
         self._progress_bar.setCustomBackgroundColor(BORDER_HEXA, BORDER_HEXA)
         progress_row.addWidget(self._progress_bar, 1)
@@ -61,7 +60,7 @@ class DownloadBanner(QWidget):
             f"border: 1px solid {BORDER_HEXA};"
             "border-radius: 16px;"
             "}"
-            f"DownloadBanner #statusStripText {{ color: {TEXT_MUTED_HEXA}; }}"
+            "DownloadBanner #statusStripText { color: #d6d6d6; }"
         )
         self.setVisible(False)
 

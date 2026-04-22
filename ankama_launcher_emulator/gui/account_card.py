@@ -27,6 +27,8 @@ from ankama_launcher_emulator.gui.utils import run_in_background
 from ankama_launcher_emulator.utils.proxy_store import ProxyStore
 from ankama_launcher_emulator.haapi.account_meta import AccountMeta
 
+CONTROL_HEIGHT = 28
+
 
 def has_active_credentials(login: str) -> bool:
     """True if the active (portable or official) folders hold both key and cert.
@@ -36,7 +38,9 @@ def has_active_credentials(login: str) -> bool:
     lookup used at launch.
     """
     try:
-        uuid_active, cert_folder, key_folder, _, _ = CryptoHelper.get_crypto_context(login)
+        uuid_active, cert_folder, key_folder, _, _ = CryptoHelper.get_crypto_context(
+            login
+        )
     except (FileNotFoundError, OSError):
         return False
     cert_path = os.path.join(
@@ -90,7 +94,8 @@ class AccountCard(CardWidget):
             "border-radius: 18px;"
             "}"
             f"AccountCard CaptionLabel {{ color: {TEXT_MUTED_HEXA}; }}"
-            f"AccountCard ComboBox {{ background-color: {PANEL_ALT_HEXA}; }}"
+            f"AccountCard ComboBox {{ background-color: {PANEL_ALT_HEXA}; border-radius: 14px; padding: 2px 10px; }}"
+            "AccountCard PushButton, AccountCard PrimaryPushButton { border-radius: 14px; padding: 2px 10px; }"
         )
 
         self._login_label = BodyLabel(self.login)
@@ -106,7 +111,7 @@ class AccountCard(CardWidget):
         self._portable_switch = SwitchButton(parent=self)
         self._portable_switch.setOnText("Portable")
         self._portable_switch.setOffText("Official")
-        
+
         meta = AccountMeta()
         entry = meta.get(self.login) or {}
         self._portable_switch.setChecked(entry.get("portable_mode", False))
@@ -119,13 +124,20 @@ class AccountCard(CardWidget):
             f"background-color: {GREEN_HEXA}; border-radius: 5px;"
         )
         self._status_dot.setVisible(False)
-        layout.addWidget(
-            self._status_dot, 0, 5, alignment=Qt.AlignmentFlag.AlignCenter
-        )
+        layout.addWidget(self._status_dot, 0, 5, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self._ip_combo = ComboBox()
         self._ip_combo.addItem("Auto", userData=None)
         self._ip_combo.setMinimumWidth(220)
+        self._ip_combo.setFixedHeight(CONTROL_HEIGHT)
+        self._ip_combo.setStyleSheet(
+            "ComboBox {"
+            f"background-color: {PANEL_ALT_HEXA};"
+            f"border: 1px solid {BORDER_HEXA};"
+            "border-radius: 14px;"
+            "padding: 2px 10px;"
+            "}"
+        )
 
         for ip_value, (display_name, public_ip) in all_interface.items():
             self._ip_combo.addItem(
@@ -136,23 +148,43 @@ class AccountCard(CardWidget):
 
         self._proxy_combo = ComboBox()
         self._proxy_combo.setMinimumWidth(220)
+        self._proxy_combo.setFixedHeight(CONTROL_HEIGHT)
+        self._proxy_combo.setStyleSheet(self._ip_combo.styleSheet())
         self._refresh_proxy_combo()
         self._proxy_combo.currentIndexChanged.connect(self._on_proxy_changed)
         layout.addWidget(self._proxy_combo, 0, 3)
 
         self._test_proxy_btn = PushButton("Test")
         self._test_proxy_btn.setFixedWidth(68)
+        self._test_proxy_btn.setFixedHeight(CONTROL_HEIGHT)
+        self._test_proxy_btn.setStyleSheet(
+            "PushButton {"
+            f"background-color: {PANEL_ALT_HEXA};"
+            f"border: 1px solid {BORDER_HEXA};"
+            "border-radius: 14px;"
+            "padding: 2px 10px;"
+            "}"
+        )
         self._test_proxy_btn.clicked.connect(self._on_test_proxy)
         layout.addWidget(self._test_proxy_btn, 0, 4)
 
         self._launch_btn = PrimaryPushButton("Launch")
         self._launch_btn.setFixedWidth(110)
+        self._launch_btn.setFixedHeight(CONTROL_HEIGHT)
         self._launch_btn.clicked.connect(self._on_btn_clicked)
         layout.addWidget(self._launch_btn, 0, 5)
         self._refresh_launch_button()
 
         self._remove_btn = PushButton("X")
-        self._remove_btn.setFixedWidth(36)
+        self._remove_btn.setFixedSize(28, 28)
+        self._remove_btn.setStyleSheet(
+            "PushButton {"
+            f"background-color: {PANEL_ALT_HEXA};"
+            f"border: 1px solid {BORDER_HEXA};"
+            "border-radius: 14px;"
+            "padding: 0;"
+            "}"
+        )
         self._remove_btn.clicked.connect(self.remove_requested.emit)
         layout.addWidget(self._remove_btn, 0, 6)
         layout.setColumnStretch(0, 2)
@@ -170,12 +202,20 @@ class AccountCard(CardWidget):
         if has_active_credentials(self.login):
             self._launch_btn.setText("Launch")
             self._launch_btn.setStyleSheet(
-                f"PrimaryPushButton {{ background-color: {ORANGE_HEXA}; }}"
+                "PrimaryPushButton {"
+                f"background-color: {ORANGE_HEXA};"
+                "border-radius: 14px;"
+                "padding: 2px 10px;"
+                "}"
             )
         else:
             self._launch_btn.setText("Reconnect")
             self._launch_btn.setStyleSheet(
-                f"PrimaryPushButton {{ background-color: {BLUE_HEXA}; }}"
+                "PrimaryPushButton {"
+                f"background-color: {BLUE_HEXA};"
+                "border-radius: 14px;"
+                "padding: 2px 10px;"
+                "}"
             )
 
     def _refresh_proxy_combo(self) -> None:
@@ -215,7 +255,9 @@ class AccountCard(CardWidget):
         if proxy_id:
             proxy_url = self._proxy_store.get_proxy_url(self.login)
             if proxy_url and meta.is_proxy_used(proxy_url, exclude_login=self.login):
-                self.error_occurred.emit("Warning: This proxy is already in use by another account.")
+                self.error_occurred.emit(
+                    "Warning: This proxy is already in use by another account."
+                )
             meta.set_proxy(self.login, proxy_url)
         else:
             proxy_url = None
@@ -288,7 +330,11 @@ class AccountCard(CardWidget):
         self._current_pid = pid
         self._launch_btn.setText("Stop")
         self._launch_btn.setStyleSheet(
-            f"PrimaryPushButton {{ background-color: {ORANGE_HEXA}; }}"
+            "PrimaryPushButton {"
+            f"background-color: {ORANGE_HEXA};"
+            "border-radius: 14px;"
+            "padding: 2px 10px;"
+            "}"
         )
         self._launch_btn.setEnabled(True)
         self._status_dot.setVisible(True)

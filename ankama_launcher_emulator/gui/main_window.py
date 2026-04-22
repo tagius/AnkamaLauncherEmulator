@@ -120,7 +120,9 @@ class MainWindow(QMainWindow):
             f"QWidget#contentShell {{ background-color: {APP_BG_HEXA}; }}"
             f"QWidget#topBar {{ background-color: {PANEL_BG_HEXA}; border: 1px solid {BORDER_HEXA}; border-radius: 20px; }}"
             f"QWidget#topBar CaptionLabel {{ color: {TEXT_MUTED_HEXA}; }}"
-            f"CardWidget#warningCard {{ background-color: {PANEL_ALT_HEXA}; border: 1px solid {BORDER_HEXA}; border-radius: 18px; }}"
+            f"CardWidget#warningCard {{ background-color: {PANEL_ALT_HEXA}; border: 1px solid {BORDER_HEXA}; border-radius: 16px; }}"
+            f"CardWidget#warningCard BodyLabel {{ color: #d6d6d6; }}"
+            f"CardWidget#warningCard CaptionLabel {{ color: {TEXT_MUTED_HEXA}; }}"
             f"CardWidget#emptyStateCard {{ background-color: {PANEL_BG_HEXA}; border: 1px solid {BORDER_HEXA}; border-radius: 20px; }}"
             f"CardWidget#emptyStateCard BodyLabel {{ color: {TEXT_MUTED_HEXA}; }}"
         )
@@ -199,18 +201,11 @@ class MainWindow(QMainWindow):
         self._banner = DownloadBanner(self._top_bar)
         top_bar_layout.addWidget(self._banner)
 
-        header_row.addWidget(self._top_bar, 1)
-        header_row.addStretch(1)
-        layout.addLayout(header_row)
-
-        if not has_shown_star_repo():
-            layout.addWidget(StarBar())
-
         if not CYTRUS_INSTALLED:
             self._warning_card = CardWidget()
             self._warning_card.setObjectName("warningCard")
             warning_layout = QVBoxLayout(self._warning_card)
-            warning_layout.setContentsMargins(18, 16, 18, 16)
+            warning_layout.setContentsMargins(12, 10, 12, 10)
             warning_layout.setSpacing(4)
             warning_layout.addWidget(BodyLabel("cytrus-v6 is not installed"))
             warning_hint = CaptionLabel(
@@ -218,9 +213,16 @@ class MainWindow(QMainWindow):
             )
             warning_hint.setWordWrap(True)
             warning_layout.addWidget(warning_hint)
-            layout.addWidget(self._warning_card)
+            top_bar_layout.addWidget(self._warning_card)
         else:
             self._warning_card = None
+
+        header_row.addWidget(self._top_bar, 1)
+        header_row.addStretch(1)
+        layout.addLayout(header_row)
+
+        if not has_shown_star_repo():
+            layout.addWidget(StarBar())
 
         action_row = QHBoxLayout()
         action_row.setSpacing(10)
@@ -228,16 +230,27 @@ class MainWindow(QMainWindow):
 
         gear_btn = PushButton("Proxies")
         gear_btn.setFixedWidth(100)
+        gear_btn.setFixedHeight(28)
+        gear_btn.setStyleSheet(
+            "PushButton {"
+            f"background-color: {PANEL_ALT_HEXA};"
+            f"border: 1px solid {BORDER_HEXA};"
+            "border-radius: 14px;"
+            "padding: 2px 10px;"
+            "}"
+        )
         gear_btn.clicked.connect(self._open_proxy_dialog)
         action_row.addWidget(gear_btn)
 
         add_btn = PushButton("Add Account")
         add_btn.setFixedWidth(124)
+        add_btn.setFixedHeight(28)
         add_btn.setStyleSheet(
             "PushButton {"
             f"background-color: {ORANGE_HEXA};"
             "color: white;"
-            "padding: 8px 14px;"
+            "border-radius: 14px;"
+            "padding: 2px 10px;"
             "}"
         )
         add_btn.clicked.connect(self._open_add_account_dialog)
@@ -408,7 +421,9 @@ class MainWindow(QMainWindow):
 
         def request_code(on_progress: Callable) -> str:
             uuid_active, _, key_folder, _, _ = CryptoHelper.get_crypto_context(login)
-            api_key = CryptoHelper.getStoredApiKey(login, key_folder, uuid_active)["apikey"]["key"]
+            api_key = CryptoHelper.getStoredApiKey(login, key_folder, uuid_active)[
+                "apikey"
+            ]["key"]
             on_progress("Requesting security code via email...")
             request_security_code(api_key, proxy_url=proxy_url)
             logger.info("[SHIELD] Security code requested via email")
@@ -423,7 +438,9 @@ class MainWindow(QMainWindow):
 
         def on_error(exc: object) -> None:
             if _is_unauthorized(exc):
-                logger.info(f"[SHIELD] Light 401 on SecurityCode for {login}, escalating")
+                logger.info(
+                    f"[SHIELD] Light 401 on SecurityCode for {login}, escalating"
+                )
                 self._handle_shield_heavy(login, launch, card)
                 return
             self._show_error(f"Shield error: {exc}")
@@ -453,7 +470,9 @@ class MainWindow(QMainWindow):
         try:
             dialog_class = _load_embedded_auth_dialog_class()
             session = ZaapPkceSession()
-            dialog = dialog_class(session.auth_url, login, session.code_verifier, parent=self)
+            dialog = dialog_class(
+                session.auth_url, login, session.code_verifier, parent=self
+            )
         except (ImportError, RuntimeError, OSError) as exc:
             self._show_error(f"Embedded auth dialog unavailable: {exc}")
             self._set_panel_status("")
@@ -476,6 +495,7 @@ class MainWindow(QMainWindow):
         def reauthenticate(on_progress: Callable[[str], None]) -> dict:
             on_progress("Signing in again...")
             from ankama_launcher_emulator.haapi.pkce_auth import fetch_account_profile
+
             account = fetch_account_profile(tokens["access_token"])
             if not account.get("id"):
                 raise RuntimeError("Failed to get account info")
@@ -604,7 +624,9 @@ class MainWindow(QMainWindow):
 
         def validate_and_launch(on_progress: Callable[[str], None]) -> int:
             on_progress("Validating security code...")
-            uuid_active, cert_folder, _, hm1, hm2 = CryptoHelper.get_crypto_context(login)
+            uuid_active, cert_folder, _, hm1, hm2 = CryptoHelper.get_crypto_context(
+                login
+            )
             cert_data = validate_security_code(
                 data["access_token"], code, hm1=hm1, hm2=hm2, proxy_url=proxy_url
             )
@@ -679,7 +701,9 @@ class MainWindow(QMainWindow):
 
         def validate_and_launch(on_progress: Callable) -> int:
             on_progress("Validating security code...")
-            uuid_active, cert_folder, _, hm1, hm2 = CryptoHelper.get_crypto_context(login)
+            uuid_active, cert_folder, _, hm1, hm2 = CryptoHelper.get_crypto_context(
+                login
+            )
             cert_data = validate_security_code(
                 api_key, code, hm1=hm1, hm2=hm2, proxy_url=proxy_url
             )
@@ -705,7 +729,9 @@ class MainWindow(QMainWindow):
 
         def on_error(retry_err: object) -> None:
             if _is_unauthorized(retry_err):
-                logger.info(f"[SHIELD] Light 401 on ValidateCode for {login}, escalating")
+                logger.info(
+                    f"[SHIELD] Light 401 on ValidateCode for {login}, escalating"
+                )
                 self._handle_shield_heavy(login, launch, card)
                 return
             self._show_error(str(retry_err))
@@ -778,7 +804,9 @@ class MainWindow(QMainWindow):
 
         def task(_on_progress: object) -> None:
             try:
-                uuid_active, _, key_folder, _, _ = CryptoHelper.get_crypto_context(login)
+                uuid_active, _, key_folder, _, _ = CryptoHelper.get_crypto_context(
+                    login
+                )
                 stored = CryptoHelper.getStoredApiKey(login, key_folder, uuid_active)
                 api_key = stored["apikey"]["key"]
             except StopIteration:
@@ -848,7 +876,10 @@ class MainWindow(QMainWindow):
         self._is_refreshing = True
 
         def fetch(_on_progress: Callable) -> tuple:
-            from ankama_launcher_emulator.haapi.account_persistence import list_all_api_keys
+            from ankama_launcher_emulator.haapi.account_persistence import (
+                list_all_api_keys,
+            )
+
             return list_all_api_keys(), get_available_network_interfaces()
 
         def on_success(result: object) -> None:
