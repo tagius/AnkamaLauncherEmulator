@@ -1,6 +1,7 @@
 """Proxy library management dialog."""
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -23,6 +24,7 @@ from ankama_launcher_emulator.gui.consts import (
     ORANGE_HEXA,
     PANEL_ALT_HEXA,
     PANEL_BG_HEXA,
+    SCROLLBAR_HEXA,
     TEXT_MUTED_HEXA,
     TEXT_SOFT_HEXA,
 )
@@ -245,6 +247,8 @@ class ProxyDialog(QDialog):
         # Scroll area for proxy rows
         self._scroll = ScrollArea()
         self._scroll.setWidgetResizable(True)
+        vbar = self._scroll.scrollDelagate.vScrollBar  # type: ignore[attr-defined]
+        vbar.darkBackgroundColor = QColor(SCROLLBAR_HEXA)  # type: ignore[attr-defined]
         self._scroll_content = QWidget()
         self._scroll_layout = QVBoxLayout(self._scroll_content)
         self._scroll_layout.setSpacing(6)

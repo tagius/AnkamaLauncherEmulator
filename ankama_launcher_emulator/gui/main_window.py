@@ -3,15 +3,13 @@ import importlib
 from typing import Callable, cast
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QColor, QPixmap
 from PyQt6.QtWidgets import (
     QDialog,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -22,6 +20,7 @@ from qfluentwidgets import (
     InfoBar,
     InfoBarPosition,
     PushButton,
+    ScrollArea,
     TitleLabel,
 )
 
@@ -45,6 +44,7 @@ from ankama_launcher_emulator.gui.consts import (
     PANEL_BG_HEXA,
     RED_HEXA,
     TEXT_DIM_HEXA,
+    SCROLLBAR_HEXA,
     TEXT_HEXA,
     TEXT_MUTED_HEXA,
 )
@@ -267,12 +267,10 @@ class MainWindow(QMainWindow):
         action_row.addWidget(add_btn)
         layout.addLayout(action_row)
 
-        self._accounts_scroll = QScrollArea()
+        self._accounts_scroll = ScrollArea()
         self._accounts_scroll.setWidgetResizable(True)
-        self._accounts_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._accounts_scroll.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded
-        )
+        vbar = self._accounts_scroll.scrollDelagate.vScrollBar  # type: ignore[attr-defined]
+        vbar.darkBackgroundColor = QColor(SCROLLBAR_HEXA)  # type: ignore[attr-defined]
 
         self._card_container = QWidget()
         self._card_container.setObjectName("cardContainer")
