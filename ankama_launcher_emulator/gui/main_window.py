@@ -69,6 +69,10 @@ from ankama_launcher_emulator.haapi.shield import (
     validate_security_code,
 )
 from ankama_launcher_emulator.server.server import AnkamaLauncherServer
+from ankama_launcher_emulator.utils.app_config import (
+    get_last_selected_game,
+    set_last_selected_game,
+)
 from ankama_launcher_emulator.utils.internet import get_available_network_interfaces
 from ankama_launcher_emulator.utils.proxy import build_proxy_listener, verify_proxy_ip
 from ankama_launcher_emulator.utils.proxy_store import ProxyStore
@@ -104,7 +108,7 @@ class MainWindow(QMainWindow):
         self._proxy_store = ProxyStore()
         self._cards: list[AccountCard] = []
         self._launch_contexts: dict[str, dict[str, object]] = {}
-        self._current_game_is_dofus3: bool = DOFUS_INSTALLED or not RETRO_INSTALLED
+        self._current_game_is_dofus3: bool = self._load_initial_game_selection()
         self._is_refreshing = False
         self._bootstrap_loading = bootstrap_loading
         server_handler = getattr(self._server, "handler", None)
@@ -305,10 +309,18 @@ class MainWindow(QMainWindow):
         self._accounts_scroll.setWidget(self._card_container)
         layout.addWidget(self._accounts_scroll, 1)
 
-        self._select_game(self._current_game_is_dofus3)
+        self._select_game(self._current_game_is_dofus3, persist=False)
         self._sync_empty_state()
 
-    def _select_game(self, is_dofus_3: bool) -> None:
+    def _load_initial_game_selection(self) -> bool:
+        saved_game = get_last_selected_game()
+        if saved_game == "dofus3" and DOFUS_INSTALLED:
+            return True
+        if saved_game == "retro" and RETRO_INSTALLED:
+            return False
+        return DOFUS_INSTALLED or not RETRO_INSTALLED
+
+    def _select_game(self, is_dofus_3: bool, *, persist: bool = True) -> None:
         self._current_game_is_dofus3 = is_dofus_3
         title = DOFUS_3_TITLE if is_dofus_3 else DOFUS_RETRO_TITLE
         logo_path = RESOURCES / ("Dofus3.png" if is_dofus_3 else "DofusRetro.png")
@@ -323,6 +335,8 @@ class MainWindow(QMainWindow):
         )
         self._dofus_selector.set_active(is_dofus_3)
         self._retro_selector.set_active(not is_dofus_3)
+        if persist:
+            set_last_selected_game("dofus3" if is_dofus_3 else "retro")
 
     def _current_launch_fn(self) -> Callable:
         if self._current_game_is_dofus3:

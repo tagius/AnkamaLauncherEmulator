@@ -1,8 +1,10 @@
+import json
 import os
+import tempfile
 import unittest
 from pathlib import Path
 from typing import cast
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -78,6 +80,45 @@ class GuiShellTests(unittest.TestCase):
         self.assertEqual(window._dofus_selector.property("navRole"), "game")
         self.assertEqual(window._retro_selector.property("navRole"), "game")
         self.assertEqual(window._cards[0].login, "demo@example.com")
+
+    @patch("ankama_launcher_emulator.gui.main_window.RETRO_INSTALLED", True)
+    @patch("ankama_launcher_emulator.gui.main_window.DOFUS_INSTALLED", True)
+    @patch("ankama_launcher_emulator.gui.main_window.get_last_selected_game")
+    def test_main_window_restores_saved_retro_selection(self, get_last_selected_game):
+        get_last_selected_game.return_value = "retro"
+        window = MainWindow(cast(AnkamaLauncherServer, _DummyServer()), [], {})
+        window.show()
+        self.app.processEvents()
+
+        self.assertEqual(window._title_label.text(), "Dofus Rétro")
+        self.assertFalse(window._current_game_is_dofus3)
+
+    @patch("ankama_launcher_emulator.gui.main_window.RETRO_INSTALLED", False)
+    @patch("ankama_launcher_emulator.gui.main_window.DOFUS_INSTALLED", True)
+    @patch("ankama_launcher_emulator.gui.main_window.get_last_selected_game")
+    def test_main_window_falls_back_when_saved_game_is_unavailable(
+        self, get_last_selected_game
+    ):
+        get_last_selected_game.return_value = "retro"
+        window = MainWindow(cast(AnkamaLauncherServer, _DummyServer()), [], {})
+        window.show()
+        self.app.processEvents()
+
+        self.assertEqual(window._title_label.text(), "Dofus 3")
+        self.assertTrue(window._current_game_is_dofus3)
+
+    @patch("ankama_launcher_emulator.gui.main_window.set_last_selected_game")
+    def test_main_window_persists_selected_game_tab(self, set_last_selected_game):
+        window = MainWindow(cast(AnkamaLauncherServer, _DummyServer()), [], {})
+
+        set_last_selected_game.reset_mock()
+        window._select_game(False)
+        window._select_game(True)
+
+        self.assertEqual(
+            set_last_selected_game.call_args_list,
+            [call("retro"), call("dofus3")],
+        )
 
     def test_main_window_empty_state_panel_visible_without_accounts(self):
         window = MainWindow(cast(AnkamaLauncherServer, _DummyServer()), [], {})
@@ -203,6 +244,36 @@ class GuiShellTests(unittest.TestCase):
         )
         self.assertIn("name: AnkAlt-Launcher-windows", workflow_text)
         self.assertIn("path: dist/AnkAlt Launcher.exe", workflow_text)
+
+    def test_app_config_returns_none_for_corrupt_or_invalid_saved_game(self):
+        from ankama_launcher_emulator.utils import app_config
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = os.path.join(tmpdir, "config.json")
+
+            with open(config_path, "w", encoding="utf-8") as file:
+                file.write("{")
+            with patch.object(app_config, "APP_CONFIG_PATH", config_path):
+                self.assertIsNone(app_config.get_last_selected_game())
+
+            with open(config_path, "w", encoding="utf-8") as file:
+                json.dump({"last_selected_game": "wakfu"}, file)
+            with patch.object(app_config, "APP_CONFIG_PATH", config_path):
+                self.assertIsNone(app_config.get_last_selected_game())
+
+    def test_app_config_persists_last_selected_game(self):
+        from ankama_launcher_emulator.utils import app_config
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = os.path.join(tmpdir, "config.json")
+
+            with patch.object(app_config, "APP_CONFIG_PATH", config_path):
+                app_config.set_last_selected_game("retro")
+                self.assertEqual(app_config.get_last_selected_game(), "retro")
+
+            with open(config_path, "r", encoding="utf-8") as file:
+                config = json.load(file)
+            self.assertEqual(config["last_selected_game"], "retro")
 
     @patch("ankama_launcher_emulator.gui.app.sys.exit")
     @patch("ankama_launcher_emulator.gui.app.set_app_icon")
