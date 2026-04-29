@@ -1,4 +1,5 @@
 import logging
+import socket
 import sys
 import uuid
 from dataclasses import dataclass, field
@@ -53,13 +54,28 @@ class AnkamaLauncherServer:
     _server_thread: Thread | None = None
     _dofus_threads: list[Thread] = field(init=False, default_factory=list)
 
-    def start(self):
+    def _port_is_available(self) -> bool:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            probe.bind(("0.0.0.0", LAUNCHER_PORT))
+        except OSError:
+            return False
+        finally:
+            probe.close()
+        return True
+
+    def _stop_existing_launcher_on_port(self) -> None:
         for proc in process_iter():
             if proc.pid == 0:
                 continue
             for conns in proc.net_connections(kind="inet"):
                 if conns.laddr.port == LAUNCHER_PORT:
                     proc.send_signal(SIGTERM)
+
+    def start(self):
+        if not self._port_is_available():
+            self._stop_existing_launcher_on_port()
 
         processor = ZaapService.Processor(self.handler)
         transport = TSocket.TServerSocket(host="0.0.0.0", port=LAUNCHER_PORT)

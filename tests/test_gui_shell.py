@@ -2,7 +2,7 @@ import os
 import unittest
 from pathlib import Path
 from typing import cast
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -87,6 +87,79 @@ class GuiShellTests(unittest.TestCase):
         self.assertIn("No account found", window._empty_state_label.text())
         self.assertTrue(window._empty_state_card.isVisible())
 
+    def test_main_window_initial_refresh_updates_accounts_and_interfaces(self):
+        with patch(
+            "ankama_launcher_emulator.gui.account_card.has_active_credentials",
+            return_value=True,
+        ):
+            window = MainWindow(
+                cast(AnkamaLauncherServer, _DummyServer()),
+                [],
+                {},
+                bootstrap_loading=True,
+            )
+
+            self.assertEqual(window._cards, [])
+            self.assertEqual(window._interfaces, {})
+
+            window._apply_refresh(
+                [{"apikey": {"login": "demo@example.com"}}],
+                {"10.0.0.2": ("Fiber", "203.0.113.10")},
+            )
+
+            self.assertFalse(window._bootstrap_loading)
+            self.assertEqual(len(window._cards), 1)
+            self.assertEqual(
+                window._accounts[0]["apikey"]["login"], "demo@example.com"
+            )
+            self.assertEqual(
+                window._interfaces, {"10.0.0.2": ("Fiber", "203.0.113.10")}
+            )
+            self.assertEqual(window._cards[0]._ip_combo.count(), 2)
+
+    @patch("ankama_launcher_emulator.gui.main_window.QTimer.singleShot")
+    def test_main_window_start_initial_refresh_schedules_background_fetch(
+        self, single_shot
+    ):
+        window = MainWindow(
+            cast(AnkamaLauncherServer, _DummyServer()),
+            [],
+            {},
+            bootstrap_loading=True,
+        )
+
+        window.start_initial_refresh()
+
+        self.assertEqual(single_shot.call_count, 1)
+        delay, callback = single_shot.call_args.args
+        self.assertEqual(delay, 0)
+        self.assertEqual(getattr(callback, "__self__", None), window)
+        self.assertEqual(getattr(callback, "__name__", ""), "_schedule_refresh")
+
+    @patch("ankama_launcher_emulator.gui.main_window.run_in_background")
+    def test_main_window_refresh_error_clears_bootstrap_loading(
+        self, run_in_background
+    ):
+        window = MainWindow(
+            cast(AnkamaLauncherServer, _DummyServer()),
+            [],
+            {},
+            bootstrap_loading=True,
+        )
+
+        def fail_fetch(_task, on_success=None, on_error=None, **_kwargs):
+            del on_success
+            assert on_error is not None
+            on_error(RuntimeError("boom"))
+
+        run_in_background.side_effect = fail_fetch
+
+        window._schedule_refresh()
+
+        self.assertFalse(window._is_refreshing)
+        self.assertFalse(window._bootstrap_loading)
+        self.assertIn("No account found", window._empty_state_label.text())
+
     def test_download_banner_hides_when_idle_and_tracks_progress(self):
         banner = DownloadBanner()
         banner.set_status("Downloading update... 2 / 5")
@@ -130,3 +203,37 @@ class GuiShellTests(unittest.TestCase):
         )
         self.assertIn("name: AnkAlt-Launcher-windows", workflow_text)
         self.assertIn("path: dist/AnkAlt Launcher.exe", workflow_text)
+
+    @patch("ankama_launcher_emulator.gui.app.sys.exit")
+    @patch("ankama_launcher_emulator.gui.app.set_app_icon")
+    @patch("ankama_launcher_emulator.gui.app.ensure_app")
+    @patch("ankama_launcher_emulator.gui.app.MainWindow")
+    @patch("ankama_launcher_emulator.gui.app.AnkamaLauncherServer")
+    @patch("ankama_launcher_emulator.gui.app.AnkamaLauncherHandler")
+    def test_run_gui_shows_window_before_loading_data(
+        self,
+        handler_cls,
+        server_cls,
+        main_window_cls,
+        ensure_app,
+        set_app_icon,
+        sys_exit,
+    ):
+        app = MagicMock()
+        app.exec.return_value = 0
+        ensure_app.return_value = app
+        server = MagicMock()
+        server_cls.return_value = server
+        window = MagicMock()
+        main_window_cls.return_value = window
+
+        from ankama_launcher_emulator.gui.app import run_gui
+
+        run_gui()
+
+        server.start.assert_called_once_with()
+        main_window_cls.assert_called_once_with(server, [], {}, bootstrap_loading=True)
+        window.show.assert_called_once_with()
+        window.start_initial_refresh.assert_called_once_with()
+        set_app_icon.assert_called_once_with(app)
+        sys_exit.assert_called_once_with(0)

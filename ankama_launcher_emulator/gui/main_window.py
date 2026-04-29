@@ -94,6 +94,8 @@ class MainWindow(QMainWindow):
         server: AnkamaLauncherServer,
         accounts: list,
         all_interface: dict[str, tuple[str, str]],
+        *,
+        bootstrap_loading: bool = False,
     ):
         super().__init__()
         self._server = server
@@ -104,6 +106,7 @@ class MainWindow(QMainWindow):
         self._launch_contexts: dict[str, dict[str, object]] = {}
         self._current_game_is_dofus3: bool = DOFUS_INSTALLED or not RETRO_INSTALLED
         self._is_refreshing = False
+        self._bootstrap_loading = bootstrap_loading
         server_handler = getattr(self._server, "handler", None)
         if server_handler is not None:
             server_handler.on_shield_recovery = self._on_server_shield_recovery
@@ -354,7 +357,27 @@ class MainWindow(QMainWindow):
             for card in self._cards:
                 card.set_launch_enabled(False)
 
+    def start_initial_refresh(self) -> None:
+        QTimer.singleShot(0, self._schedule_refresh)
+
+    def _update_empty_state_message(self) -> None:
+        if self._bootstrap_loading:
+            self._empty_state_label.setText(
+                "Loading accounts and network interfaces...\n"
+                "The launcher shell is ready; account data will appear shortly."
+            )
+            self._empty_state_label.setStyleSheet(f"color: {TEXT_MUTED_HEXA};")
+            return
+        self._empty_state_label.setText(
+            "No account found.\n"
+            "Check that Ankama Launcher is installed and has logged accounts.\n"
+            f"Expected path: {ZAAP_PATH}/keydata/\n\n"
+            "Or click 'Add Account' to add an account manually."
+        )
+        self._empty_state_label.setStyleSheet(f"color: {RED_HEXA};")
+
     def _sync_empty_state(self) -> None:
+        self._update_empty_state_message()
         self._empty_state_card.setVisible(not self._cards)
 
     def _find_card(self, login: str) -> AccountCard | None:
@@ -926,10 +949,15 @@ class MainWindow(QMainWindow):
             accounts, interfaces = cast(tuple, result)
             self._apply_refresh(accounts, interfaces)
 
+        def on_error(_: object) -> None:
+            self._is_refreshing = False
+            self._bootstrap_loading = False
+            self._sync_empty_state()
+
         run_in_background(
             fetch,
             on_success=on_success,
-            on_error=lambda _: setattr(self, "_is_refreshing", False),
+            on_error=on_error,
             parent=self,
         )
 
@@ -937,6 +965,7 @@ class MainWindow(QMainWindow):
         self, new_accounts: list, new_interfaces: dict[str, tuple[str, str]]
     ) -> None:
         self._is_refreshing = False
+        self._bootstrap_loading = False
 
         current_logins: set[str] = {acc["apikey"]["login"] for acc in self._accounts}
         new_logins: set[str] = {acc["apikey"]["login"] for acc in new_accounts}
@@ -962,3 +991,5 @@ class MainWindow(QMainWindow):
             for card in self._cards:
                 card.update_interfaces(new_interfaces)
             self._interfaces = new_interfaces
+        if current_logins == new_logins:
+            self._sync_empty_state()
