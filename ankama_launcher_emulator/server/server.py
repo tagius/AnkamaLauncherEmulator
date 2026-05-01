@@ -160,7 +160,7 @@ class AnkamaLauncherServer:
 
         check_retro_installation(on_progress)
 
-        logger.info("Completed retro installation")
+        logger.debug("Completed retro installation")
 
         port = randint(57000, 63000)
 

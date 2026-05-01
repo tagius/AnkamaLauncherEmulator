@@ -51,6 +51,7 @@ from ankama_launcher_emulator.gui.consts import (
 from ankama_launcher_emulator.gui.download_banner import DownloadBanner
 from ankama_launcher_emulator.gui.game_selector_card import GameSelectorCard
 from ankama_launcher_emulator.gui.proxy_dialog import ProxyDialog
+from ankama_launcher_emulator.gui.settings_dialog import SettingsDialog
 from ankama_launcher_emulator.gui.shield_dialog import ShieldCodeDialog
 from ankama_launcher_emulator.gui.star_dialog import (
     StarBar,
@@ -248,6 +249,21 @@ class MainWindow(QMainWindow):
         action_row = QHBoxLayout()
         action_row.setSpacing(10)
         action_row.addStretch()
+
+        settings_btn = PushButton("⚙")
+        settings_btn.setFixedWidth(36)
+        settings_btn.setFixedHeight(28)
+        settings_btn.setStyleSheet(
+            "PushButton {"
+            f"background-color: {PANEL_ALT_HEXA};"
+            f"border: 1px solid {BORDER_HEXA};"
+            "border-radius: 14px;"
+            "padding: 2px 4px;"
+            "font-size: 14px;"
+            "}"
+        )
+        settings_btn.clicked.connect(self._open_settings_dialog)
+        action_row.addWidget(settings_btn)
 
         gear_btn = PushButton("Proxies")
         gear_btn.setFixedWidth(100)
@@ -447,7 +463,7 @@ class MainWindow(QMainWindow):
             }
 
             if AccountMeta().cert_proxy_changed(login, proxy_url):
-                logger.info(f"[LAUNCH] Proxy changed since cert validation for {login}, triggering shield refresh")
+                logger.debug(f"[LAUNCH] Proxy changed since cert validation for {login}, triggering shield refresh")
                 self._handle_shield_light(login, launch, card)
                 return
 
@@ -507,7 +523,7 @@ class MainWindow(QMainWindow):
             ]["key"]
             on_progress("Requesting security code via email...")
             request_security_code(api_key, proxy_url=proxy_url)
-            logger.info("[SHIELD] Security code requested via email")
+            logger.debug("[SHIELD] Security code requested via email")
             return api_key
 
         def on_code_requested(result: object) -> None:
@@ -519,7 +535,7 @@ class MainWindow(QMainWindow):
 
         def on_error(exc: object) -> None:
             if _is_unauthorized(exc):
-                logger.info(
+                logger.debug(
                     f"[SHIELD] Light 401 on SecurityCode for {login}, escalating"
                 )
                 self._handle_shield_heavy(login, launch, card)
@@ -808,7 +824,7 @@ class MainWindow(QMainWindow):
             cert_data = validate_security_code(
                 api_key, code, hm1=hm1, hm2=hm2, proxy_url=proxy_url
             )
-            logger.info("[SHIELD] ValidateCode success")
+            logger.debug("[SHIELD] ValidateCode success")
             on_progress("Storing certificate...")
             store_shield_certificate(login, cert_data, cert_folder, uuid_active)
             AccountMeta().record_cert_validated(login, proxy_url)
@@ -831,7 +847,7 @@ class MainWindow(QMainWindow):
 
         def on_error(retry_err: object) -> None:
             if _is_unauthorized(retry_err):
-                logger.info(
+                logger.debug(
                     f"[SHIELD] Light 401 on ValidateCode for {login}, escalating"
                 )
                 self._handle_shield_heavy(login, launch, card)
@@ -936,6 +952,10 @@ class MainWindow(QMainWindow):
         run_in_background(task, on_success=on_success, on_error=on_error, parent=self)
 
     # --- Dialogs ---
+
+    def _open_settings_dialog(self) -> None:
+        dialog = SettingsDialog(parent=self)
+        dialog.exec()
 
     def _open_proxy_dialog(self) -> None:
         dialog = ProxyDialog(self._proxy_store, parent=self)

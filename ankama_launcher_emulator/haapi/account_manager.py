@@ -42,7 +42,7 @@ def remove_account(login: str, api_key: str | None = None) -> None:
                 },
                 verify=False,
             )
-            logger.info(f"[REMOVE] Server-side key deleted for {login}")
+            logger.debug(f"[REMOVE] Server-side key deleted for {login}")
         except Exception as err:
             logger.warning(f"[REMOVE] Server-side key deletion failed: {err}")
 
@@ -75,25 +75,25 @@ def remove_account(login: str, api_key: str | None = None) -> None:
         try:
             stored = CryptoHelper.getStoredApiKey(login, key_folder, uuid_auth)
             os.unlink(os.path.join(key_folder, stored["apikeyFile"]))
-            logger.info(f"[REMOVE] Deleted key from {key_folder}")
+            logger.debug(f"[REMOVE] Deleted key from {key_folder}")
         except (StopIteration, FileNotFoundError, OSError) as err:
             logger.debug(f"[REMOVE] Key not in {key_folder}: {err}")
 
         try:
             os.rmdir(key_folder)
-            logger.info(f"[REMOVE] Deleted dir {key_folder}")
+            logger.debug(f"[REMOVE] Deleted dir {key_folder}")
         except OSError:
             pass  # flat official folder or non-empty — skip
 
         try:
             os.unlink(os.path.join(cert_folder, f".certif{cert_hash}"))
-            logger.info(f"[REMOVE] Deleted cert from {cert_folder}")
+            logger.debug(f"[REMOVE] Deleted cert from {cert_folder}")
         except (FileNotFoundError, OSError) as err:
             logger.debug(f"[REMOVE] Cert not in {cert_folder}: {err}")
 
         try:
             os.rmdir(cert_folder)
-            logger.info(f"[REMOVE] Deleted dir {cert_folder}")
+            logger.debug(f"[REMOVE] Deleted dir {cert_folder}")
         except OSError:
             pass  # flat official folder or non-empty — skip
 

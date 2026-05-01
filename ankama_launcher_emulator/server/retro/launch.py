@@ -44,7 +44,7 @@ def launch_retro_exe(
         f"--gameInstanceKey={random_hash}",
     ]
 
-    logger.info(command)
+    logger.debug(command)
 
     env = {
         "ZAAP_CAN_AUTH": "true",
@@ -57,7 +57,7 @@ def launch_retro_exe(
     }
 
     if portable_mode:
-        logger.info(f"[RETRO] Instance {instance_id} spoofing hostname: {fake_hostname}")
+        logger.debug(f"[RETRO] Instance {instance_id} spoofing hostname: {fake_hostname}")
 
     pid = frida.spawn(program=command, env=env)
 
@@ -90,7 +90,7 @@ def load_frida_script(
                 hooks_ready.set()
             elif isinstance(payload, int):
                 child_pid = payload
-                logger.info(
+                logger.debug(
                     f"Processus enfant détecté, injection Frida sur PID {child_pid}"
                 )
                 load_frida_script(

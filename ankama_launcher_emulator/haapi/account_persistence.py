@@ -54,11 +54,11 @@ def _dump_load_diagnostics() -> None:
     from ankama_launcher_emulator.decrypter.device import Device
     from ankama_launcher_emulator.haapi.account_meta import AccountMeta
 
-    logger.info("[LOAD/DIAG] ===== startup account diagnostics =====")
+    logger.debug("[LOAD/DIAG] ===== startup account diagnostics =====")
     try:
-        logger.info(f"[LOAD/DIAG] Device.getUUID() = {Device.getUUID()}")
+        logger.debug(f"[LOAD/DIAG] Device.getUUID() = {Device.getUUID()}")
     except Exception as err:
-        logger.info(f"[LOAD/DIAG] Device.getUUID() FAILED: {err!r}")
+        logger.debug(f"[LOAD/DIAG] Device.getUUID() FAILED: {err!r}")
 
     for folder, label in [
         (API_KEY_FOLDER_PATH, "OFFICIAL keydata"),
@@ -69,9 +69,9 @@ def _dump_load_diagnostics() -> None:
         try:
             files = sorted(os.listdir(folder))
         except OSError as err:
-            logger.info(f"[LOAD/DIAG] {label} {folder}: {err!r}")
+            logger.debug(f"[LOAD/DIAG] {label} {folder}: {err!r}")
             continue
-        logger.info(f"[LOAD/DIAG] {label} {folder}: {files}")
+        logger.debug(f"[LOAD/DIAG] {label} {folder}: {files}")
 
     meta = AccountMeta()
     for login, entry in meta.all_entries().items():
@@ -81,13 +81,13 @@ def _dump_load_diagnostics() -> None:
             uuid_active, cert_folder, key_folder, _, _ = CryptoHelper.get_crypto_context(login)
             uuid_short = (uuid_active or "")[:8] + "…"
         except Exception as err:
-            logger.info(f"[LOAD/DIAG] meta {login}: portable={portable} fake_uuid={has_uuid} -- get_crypto_context FAILED: {err!r}")
+            logger.debug(f"[LOAD/DIAG] meta {login}: portable={portable} fake_uuid={has_uuid} -- get_crypto_context FAILED: {err!r}")
             continue
-        logger.info(
+        logger.debug(
             f"[LOAD/DIAG] meta {login}: portable={portable} fake_uuid={has_uuid} "
             f"uuid={uuid_short} key_folder={key_folder} cert_folder={cert_folder}"
         )
-    logger.info("[LOAD/DIAG] ========================================")
+    logger.debug("[LOAD/DIAG] ========================================")
 
 
 def list_all_api_keys() -> list:

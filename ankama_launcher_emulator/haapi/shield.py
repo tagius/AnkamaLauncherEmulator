@@ -116,7 +116,7 @@ def account_needs_shield(api_key: str, proxy_url: str | None = None) -> bool:
         account = get_account(api_key, proxy_url)
         security = account.get("security", [])
         needs = "SHIELD" in security or "UNSECURED" in security
-        logger.info(f"[SHIELD] Account security={security}, needs_shield={needs}")
+        logger.debug(f"[SHIELD] Account security={security}, needs_shield={needs}")
         return needs
     except Exception as err:
         logger.warning(f"[SHIELD] getAccount failed: {err}, assuming Shield needed")
@@ -142,7 +142,7 @@ def request_security_code(
         headers=headers,
         verify=False,
     )
-    logger.info(
+    logger.debug(
         f"[SHIELD] SecurityCode: status={response.status_code} "
         f"body={response.text[:500]}"
     )
@@ -184,7 +184,7 @@ def validate_security_code(
         headers=headers,
         verify=False,
     )
-    logger.info(
+    logger.debug(
         f"[SHIELD] ValidateCode: status={response.status_code} "
         f"body={response.text[:500]}"
     )
@@ -202,4 +202,4 @@ def store_shield_certificate(login: str, cert_data: dict, cert_folder_path: str,
         ".certif" + CryptoHelper.createHashFromStringSha(login),
     )
     CryptoHelper.encryptToFile(file_path, cert_data, uuid_to_use)
-    logger.info(f"[SHIELD] Certificate stored for {login}")
+    logger.debug(f"[SHIELD] Certificate stored for {login}")

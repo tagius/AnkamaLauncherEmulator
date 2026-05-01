@@ -94,10 +94,10 @@ class ProxyListener:
         interface_ip: str | None = None,
     ):
         def on_connection(client_socket: Socket, host_port: int):
-            logger.info(f"received connection from {client_socket.getpeername()}")
+            logger.debug(f"received connection from {client_socket.getpeername()}")
             server_socket = self.create_server_socket()
             if interface_ip:
-                logger.info(f"binding to {interface_ip}")
+                logger.debug(f"binding to {interface_ip}")
                 server_socket.bind((interface_ip, 0))
 
             def connect_with_retry(retry: int = 5):
@@ -111,13 +111,13 @@ class ProxyListener:
                         raise err
 
             connect_with_retry()
-            logger.info(f"connected to {server_socket.getpeername()}")
+            logger.debug(f"connected to {server_socket.getpeername()}")
             self.on_mitm_connection_callback(client_socket, server_socket, host_port)
 
         host_port = proxy_socket.getsockname()[1]
         self._listener_sockets.append(proxy_socket)
         proxy_socket.settimeout(1.0)
-        logger.info(f"listening on {host_port} for target {target_address}")
+        logger.debug(f"listening on {host_port} for target {target_address}")
 
         while not self._shutdown_requested:
             try:

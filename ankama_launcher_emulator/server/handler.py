@@ -39,12 +39,12 @@ class AnkamaLauncherHandler:
     def connect(
         self, gameName: str, releaseName: str, instanceId: int, hash: str
     ) -> str:
-        logger.info(f"connect hash {hash}")
+        logger.debug(f"connect hash {hash}")
         return hash
 
     @retry_internet
     def userInfo_get(self, hash: str) -> str:
-        logger.info(f"userInfo_get {hash}")
+        logger.debug(f"userInfo_get {hash}")
         account_info = get_account_info_by_login(self.infos_by_hash[hash].haapi.login)
         if account_info is not None:
             return json.dumps(account_info)
@@ -52,7 +52,7 @@ class AnkamaLauncherHandler:
 
     @retry_internet
     def settings_get(self, hash: str, key: str) -> str:
-        logger.info(f"settings_get {hash}")
+        logger.debug(f"settings_get {hash}")
         match key:
             case "autoConnectType":
                 return '"2"'
@@ -64,7 +64,7 @@ class AnkamaLauncherHandler:
 
     @retry_internet
     def auth_getGameToken(self, hash: str, gameId: int) -> str:
-        logger.info(f"auth_getGameToken {hash}")
+        logger.debug(f"auth_getGameToken {hash}")
         login = self.infos_by_hash[hash].login
 
         uuid_to_use, cert_folder, _, hm1, hm2 = CryptoHelper.get_crypto_context(login)
@@ -99,10 +99,10 @@ class AnkamaLauncherHandler:
 
     @retry_internet
     def updater_isUpdateAvailable(self, gameSession: str):
-        logger.info(f"updater_isUpdateAvailable {gameSession}")
+        logger.debug(f"updater_isUpdateAvailable {gameSession}")
         return False
 
     @retry_internet
     def zaapMustUpdate_get(self, gameSession: str) -> bool:
-        logger.info(f"zaapMustUpdate_get {gameSession}")
+        logger.debug(f"zaapMustUpdate_get {gameSession}")
         return False

@@ -44,7 +44,7 @@ def verify_proxy_ip(proxy_url: str, timeout: int = 10) -> str:
         response = session.get("https://api.ipify.org", timeout=timeout)
         response.raise_for_status()
         exit_ip = response.text.strip()
-        logger.info(f"[PROXY] Exit IP: {exit_ip}")
+        logger.debug(f"[PROXY] Exit IP: {exit_ip}")
         return exit_ip
     except (requests.RequestException, OSError) as err:
         raise ConnectionError(f"Proxy unreachable or failed: {err}") from err

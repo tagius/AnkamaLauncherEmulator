@@ -407,7 +407,7 @@ async def _solve_once(
     ctype  = decoded.get("challenge_type", "")
     diff   = decoded.get("difficulty", 1)
     memory = decoded.get("memory", 128)
-    logger.info("[WAF] challenge type=%s difficulty=%d", ctype, diff)
+    logger.debug("[WAF] challenge type=%s difficulty=%d", ctype, diff)
 
     metrics, fp_metrics = _build_metrics(has_token=existing_token is not None)
     if inp_latency_ms is not None:
@@ -447,7 +447,7 @@ async def _solve_once(
 async def _get_token_async(state: str, proxy_url: str | None) -> str:
     """Two-round solver. Round 1 gets a token; round 2 refines it (better
     trust score)."""
-    logger.info(
+    logger.debug(
         "[WAF] solver start proxy=%s state_len=%d", bool(proxy_url), len(state or ""),
     )
     client = _make_client(proxy_url)
@@ -480,7 +480,7 @@ async def _get_token_async(state: str, proxy_url: str | None) -> str:
             except Exception as exc:
                 logger.warning("[WAF] round 1 failed, using round-0 token: %s", exc)
 
-            logger.info("[WAF] aws-waf-token obtained")
+            logger.debug("[WAF] aws-waf-token obtained")
             return token
         except Exception as exc:
             last_error = exc

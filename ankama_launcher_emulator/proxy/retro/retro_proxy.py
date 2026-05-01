@@ -27,7 +27,7 @@ class RetroServer(Thread):
         self.sock.listen(1)
 
     def run(self):
-        logger.info(f"[RETRO] Listening on port {self.port}")
+        logger.debug(f"[RETRO] Listening on port {self.port}")
         while True:
             conn, addr = self.sock.accept()
             Thread(target=self.handle_client, args=(conn,), daemon=True).start()
@@ -44,7 +44,7 @@ class RetroServer(Thread):
                 if data.startswith(b"CONNECT "):
                     header, _, pending = data.partition(b"\r\n\r\n")
                     connect_line = header.decode("ascii", errors="ignore")
-                    logger.info(
+                    logger.debug(
                         f"[RETRO] Cmd: {connect_line.splitlines()[0][:200]}"
                     )
                     tunneling = True
@@ -55,7 +55,7 @@ class RetroServer(Thread):
                 if decoded_clean.startswith(
                     ("connect retro main", "auth_getGameToken")
                 ):
-                    logger.info(
+                    logger.debug(
                         f"[RETRO] Cmd: {decoded_clean.splitlines()[0][:200]}"
                     )
                 else:
@@ -75,7 +75,7 @@ class RetroServer(Thread):
                             f"auth_getGameToken {token}\x00".encode("utf-8")
                         )
                     else:
-                        logger.info(
+                        logger.debug(
                             "[RETRO] Error: auth_getGameToken received without handshake"
                         )
         finally:
@@ -93,7 +93,7 @@ class RetroServer(Thread):
         host, port_str = host_port.rsplit(":", 1)
         remote_port = int(port_str)
 
-        logger.info(f"[RETRO] Tunneling to {host}:{remote_port}")
+        logger.debug(f"[RETRO] Tunneling to {host}:{remote_port}")
 
         if self.socks5_host and self.socks5_port:
             remote_sock = socks.socksocket(socket.AF_INET, socket.SOCK_STREAM)

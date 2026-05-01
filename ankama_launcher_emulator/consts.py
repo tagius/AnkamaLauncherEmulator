@@ -1,9 +1,12 @@
 import json
+import logging
 import os
 import re
 import shutil
 import sys
 from pathlib import Path
+
+logger = logging.getLogger()
 
 if os.name == "nt":
     ZAAP_PATH = os.path.join(os.environ["APPDATA"], "zaap")
@@ -25,7 +28,7 @@ if os.path.exists(RELEASE_JSON_PATH):
             )
 else:
     DOFUS_PATH = "DUMMY_PATH"
-    print("<!> No Dofus path found !")
+    logger.warning("<!> No Dofus path found !")
 DOFUS_INSTALLED = os.path.exists(DOFUS_PATH)
 
 
@@ -44,7 +47,7 @@ if os.path.exists(RETRO_RELEASE_JSON_PATH):
             )
 else:
     RETRO_PATH = "DUMMY_RETRO_PATH"
-    print("<!> No Retro path found !")
+    logger.warning("<!> No Retro path found !")
 RETRO_INSTALLED = os.path.exists(RETRO_PATH)
 
 

@@ -42,3 +42,13 @@ def set_last_selected_game(game: str) -> None:
     config = _load_app_config()
     config["last_selected_game"] = game
     _save_app_config(config)
+
+
+def get_debug_mode() -> bool:
+    return bool(_load_app_config().get("debug_mode", False))
+
+
+def set_debug_mode(enabled: bool) -> None:
+    config = _load_app_config()
+    config["debug_mode"] = bool(enabled)
+    _save_app_config(config)

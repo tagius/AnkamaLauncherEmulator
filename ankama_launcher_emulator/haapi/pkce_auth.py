@@ -92,7 +92,7 @@ def exchange_code_for_token(
     )
     response.raise_for_status()
     body = response.json()
-    logger.info("[PKCE] Token exchange successful")
+    logger.debug("[PKCE] Token exchange successful")
     return {
         "access_token": body["access_token"],
         "refresh_token": body.get("refresh_token"),
@@ -143,7 +143,7 @@ class PkceSession:
         self._server.timeout = timeout
 
         webbrowser.open(self.auth_url)
-        logger.info("[PKCE] Browser opened, waiting for callback on :9001")
+        logger.debug("[PKCE] Browser opened, waiting for callback on :9001")
 
         # Handle one request (the redirect callback)
         self._server.handle_request()
@@ -152,7 +152,7 @@ class PkceSession:
 
         code = _CallbackHandler.auth_code
         if code:
-            logger.info("[PKCE] Auth code received")
+            logger.debug("[PKCE] Auth code received")
         else:
             logger.warning("[PKCE] No auth code received (timeout or error)")
         return code
@@ -294,10 +294,10 @@ async def _async_pkce_login(
 
     # Step 0: solve WAF, inject token cookie into our client's store.
     progress("Solving AWS WAF challenge...")
-    logger.info("[PKCE-PROG] step0 solving WAF")
+    logger.debug("[PKCE-PROG] step0 solving WAF")
     waf_token = await _get_token_async("", proxy_url)
     _inject_waf_cookie(client, waf_token)
-    logger.info(
+    logger.debug(
         "[PKCE-PROG] step0 WAF cookie injected (len=%d, head=%r)",
         len(waf_token or ""), (waf_token or "")[:16],
     )
@@ -317,7 +317,7 @@ async def _async_pkce_login(
     )
     html = await resp.text()
     final_url = _h(resp.url) or auth_url
-    logger.info(
+    logger.debug(
         "[PKCE-PROG] step1 GET /login/ankama status=%s len=%d final_url=%s",
         resp.status_code, len(html or ""), final_url[:200],
     )
@@ -331,7 +331,7 @@ async def _async_pkce_login(
         )
         raise RuntimeError("Failed to extract CSRF state from login page")
     state = state_match.group(1)
-    logger.info("[PKCE-PROG] step2 CSRF state extracted (len=%d)", len(state))
+    logger.debug("[PKCE-PROG] step2 CSRF state extracted (len=%d)", len(state))
 
     # Step 3: POST credentials
     progress("Submitting credentials...")
@@ -349,7 +349,7 @@ async def _async_pkce_login(
         allow_redirects=False,
     )
     location = _h(resp_post.headers.get("location"))
-    logger.info(
+    logger.debug(
         "[PKCE-PROG] step3 POST /login/ankama/form status=%s has_location=%s",
         resp_post.status_code, bool(location),
     )
@@ -363,13 +363,13 @@ async def _async_pkce_login(
 
     # Step 4: Follow redirect — one hop, look for auth code in body + location
     redirect_url = f"{AUTH_BASE}{location}" if location.startswith("/") else location
-    logger.info("[PKCE-PROG] step4 following redirect to=%s", redirect_url[:120])
+    logger.debug("[PKCE-PROG] step4 following redirect to=%s", redirect_url[:120])
     resp4 = await client.get(
         redirect_url, headers=_chrome_nav_headers(), allow_redirects=False,
     )
     body_text = await resp4.text()
     loc2 = _h(resp4.headers.get("location"))
-    logger.info(
+    logger.debug(
         "[PKCE-PROG] step4 status=%s has_location=%s body_len=%d",
         resp4.status_code, bool(loc2), len(body_text or ""),
     )
@@ -388,7 +388,7 @@ async def _async_pkce_login(
             (body_text or "")[:300], loc2[:300],
         )
         raise RuntimeError("Failed to extract authorization code from redirect")
-    logger.info("[PKCE-PROG] step4 got auth code (len=%d)", len(code))
+    logger.debug("[PKCE-PROG] step4 got auth code (len=%d)", len(code))
 
     # Step 5: /token exchange — direct (no proxy), Chrome137 TLS, WAF cookie
     progress("Exchanging tokens...")
@@ -416,7 +416,7 @@ async def _async_pkce_login(
         raise RuntimeError(f"Token exchange failed (status {token_resp.status_code})")
     access_token = tokens["access_token"]
     refresh_token = tokens.get("refresh_token")
-    logger.info("[PKCE-PROG] step5 token exchange successful")
+    logger.debug("[PKCE-PROG] step5 token exchange successful")
 
     # Step 6: /Account/Account — haapi host, not WAF-gated, keep requests
     progress("Fetching account info...")
