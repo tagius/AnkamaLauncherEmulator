@@ -120,6 +120,7 @@ class MainWindow(QMainWindow):
         self._bootstrap_loading = bootstrap_loading
         self._bootstrap_accounts_done = not bootstrap_loading
         self._bootstrap_interfaces_done = not bootstrap_loading
+        self._shield_recovery_attempts: dict[str, list[float]] = {}
         server_handler = getattr(self._server, "handler", None)
         if server_handler is not None:
             server_handler.on_shield_recovery = self._on_server_shield_recovery
@@ -468,6 +469,7 @@ class MainWindow(QMainWindow):
                 return
 
             def on_success(result: object) -> None:
+                self._shield_recovery_attempts.pop(login, None)
                 self._show_success(f"Game launch for {login}")
                 self._set_panel_status("")
                 card.set_running(int(result))  # type: ignore[arg-type]
@@ -634,6 +636,23 @@ class MainWindow(QMainWindow):
 
     def _on_server_shield_recovery(self, login: str) -> None:
         def route_recovery() -> None:
+            import time
+
+            now = time.time()
+            attempts = [t for t in self._shield_recovery_attempts.get(login, []) if now - t < 60]
+            if len(attempts) >= 1:
+                self._show_error(
+                    f"Proxy appears blocked by Ankama for {login}. "
+                    "The shield certificate was validated but Ankama keeps rejecting it. "
+                    "Try a different proxy."
+                )
+                card = self._find_card(login)
+                if card is not None:
+                    card.set_launch_enabled(True)
+                return
+            attempts.append(now)
+            self._shield_recovery_attempts[login] = attempts
+
             context = self._launch_contexts.get(login)
             launch = cast(Callable | None, context.get("launch")) if context else None
             card = cast(AccountCard | None, context.get("card")) if context else None
@@ -752,6 +771,7 @@ class MainWindow(QMainWindow):
             )
 
         def on_success(result: object) -> None:
+            self._shield_recovery_attempts.pop(login, None)
             self._show_success(f"Game launch for {login}")
             self._set_panel_status("")
             card.set_running(int(result))  # type: ignore[arg-type]
@@ -839,6 +859,7 @@ class MainWindow(QMainWindow):
             )
 
         def on_success(result: object) -> None:
+            self._shield_recovery_attempts.pop(login, None)
             self._show_success(f"Game launch for {login}")
             self._set_panel_status("")
             card.set_running(int(result))  # type: ignore[arg-type]

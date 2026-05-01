@@ -50,6 +50,7 @@ def _should_use_browser_login(err: object) -> bool:
     return (
         "failed to extract csrf state" in message
         or "request blocked" in message
+        or "blacklisted" in message
         or "cloudfront" in message
         or "waf bypass failed" in message
     )
@@ -279,7 +280,8 @@ class AddAccountDialog(QDialog):
                 type(err).__name__, str(err), _should_use_browser_login(err), tb,
             )
             if _should_use_browser_login(err):
-                self._start_browser_login(login, alias, proxy_url, portable)
+                expect_block = "blacklisted" in str(err).lower()
+                self._start_browser_login(login, alias, proxy_url, portable, expect_proxy_block=expect_block)
                 return
             self._add_btn.setEnabled(True)
             if "incorrect login or password" in str(err).lower():
@@ -295,6 +297,7 @@ class AddAccountDialog(QDialog):
         alias: str | None,
         proxy_url: str | None,
         portable: bool,
+        expect_proxy_block: bool = False,
     ) -> None:
         self._status_label.setText("Headless login blocked, opening browser...")
         try:
@@ -331,13 +334,23 @@ class AddAccountDialog(QDialog):
 
         if result != QDialog.DialogCode.Accepted:
             self._add_btn.setEnabled(True)
-            self._status_label.setText("Browser login cancelled")
+            if expect_proxy_block:
+                self._status_label.setText(
+                    "Proxy appears blocked by Ankama. Try a different proxy."
+                )
+            else:
+                self._status_label.setText("Browser login cancelled")
             return
 
         if not tokens:
             self._add_btn.setEnabled(True)
-            err = token_error or "Token exchange failed"
-            self._status_label.setText(f"Error: {err}")
+            if expect_proxy_block:
+                self._status_label.setText(
+                    "Proxy appears blocked by Ankama. Try a different proxy."
+                )
+            else:
+                err = token_error or "Token exchange failed"
+                self._status_label.setText(f"Error: {err}")
             return
 
         self._status_label.setText("Completing browser login...")

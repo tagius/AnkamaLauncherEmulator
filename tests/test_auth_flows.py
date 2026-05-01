@@ -90,7 +90,7 @@ class AuthFlowTests(unittest.TestCase):
                 dialog._on_add()
 
         start_browser_login.assert_called_once_with(
-            "demo@example.com", None, None, True
+            "demo@example.com", None, None, True, expect_proxy_block=False
         )
 
     @patch("ankama_launcher_emulator.gui.add_account_dialog._load_embedded_auth_dialog_class")
@@ -601,8 +601,8 @@ class AuthFlowTests(unittest.TestCase):
 
         run_in_background.side_effect = run_task
 
-        window._handle_shield_recovery(
-            ShieldRecoveryRequired("demo@example.com"),
+        window._handle_shield_heavy(
+            "demo@example.com",
             launch,
             card,
         )

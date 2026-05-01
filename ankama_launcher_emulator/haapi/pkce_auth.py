@@ -355,11 +355,16 @@ async def _async_pkce_login(
     )
     if not location:
         body_post = await resp_post.text()
+        status = resp_post.status_code
         logger.error(
             "[PKCE-PROG] no redirect — status=%s body_head=%r",
-            resp_post.status_code, (body_post or "")[:300],
+            status, (body_post or "")[:300],
         )
-        raise RuntimeError("Incorrect login or password")
+        if status == 401:
+            raise RuntimeError("Incorrect login or password")
+        if status in (403, 429):
+            raise RuntimeError("Request blocked — proxy may be blacklisted by Ankama")
+        raise RuntimeError(f"Login failed (HTTP {status})")
 
     # Step 4: Follow redirect — one hop, look for auth code in body + location
     redirect_url = f"{AUTH_BASE}{location}" if location.startswith("/") else location
