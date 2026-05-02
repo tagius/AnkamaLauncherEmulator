@@ -85,4 +85,41 @@ RESOURCES = _BASE_DIR / "resources"
 
 ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
-CYTRUS_INSTALLED = shutil.which("cytrus-v6") is not None
+
+def _get_local_cytrus_dir() -> str:
+    return os.path.join(app_config_dir, "cytrus")
+
+
+def _get_local_node_dir() -> str:
+    return os.path.join(app_config_dir, "node")
+
+
+def is_cytrus_installed() -> bool:
+    if shutil.which("cytrus-v6") is not None:
+        return True
+    local_cytrus = _get_local_cytrus_dir()
+    if os.name == "nt":
+        local_exe = os.path.join(local_cytrus, "node_modules", ".bin", "cytrus-v6.cmd")
+    else:
+        local_exe = os.path.join(local_cytrus, "node_modules", ".bin", "cytrus-v6")
+    return os.path.exists(local_exe)
+
+
+def ensure_cytrus_in_path() -> None:
+    """Add local Node and cytrus bins to PATH if they exist."""
+    local_node = _get_local_node_dir()
+    local_cytrus = _get_local_cytrus_dir()
+    local_bin = os.path.join(local_cytrus, "node_modules", ".bin")
+
+    paths_to_add = []
+    if os.path.exists(local_node):
+        paths_to_add.append(local_node)
+    if os.path.exists(local_bin):
+        paths_to_add.append(local_bin)
+
+    if paths_to_add:
+        current_path = os.environ.get("PATH", "")
+        current_parts = current_path.split(os.pathsep)
+        new_parts = [p for p in paths_to_add if p not in current_parts]
+        if new_parts:
+            os.environ["PATH"] = os.pathsep.join(new_parts + current_parts)

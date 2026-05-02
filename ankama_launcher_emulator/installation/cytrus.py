@@ -7,7 +7,7 @@ from typing import Callable, Literal
 
 from pydantic import validate_call
 
-from ankama_launcher_emulator.consts import ANSI_ESCAPE, CYTRUS_INSTALLED
+from ankama_launcher_emulator.consts import ANSI_ESCAPE, is_cytrus_installed
 
 logger = logging.getLogger()
 
@@ -82,7 +82,7 @@ def check_cytrus_installation(
     log_prefix: str,
     on_progress: Callable[[str], None] | None = None,
 ) -> None:
-    if not CYTRUS_INSTALLED:
+    if not is_cytrus_installed():
         return logger.warning("Cytrus not installed, skipping auto update")
     latest_version = cytrus_get_latest_version(game, release)
     logger.info(f"[{log_prefix}] Latest cytrus version: {latest_version}")

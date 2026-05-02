@@ -27,10 +27,10 @@ from qfluentwidgets import (
 )
 
 from ankama_launcher_emulator.consts import (
-    CYTRUS_INSTALLED,
     DOFUS_INSTALLED,
     RETRO_INSTALLED,
     app_config_dir,
+    is_cytrus_installed,
 )
 from ankama_launcher_emulator.gui.consts import (
     BORDER_HEXA,
@@ -99,7 +99,7 @@ def _build_diagnostics() -> dict[str, str]:
         "Version": _current_version(),
         "Dofus3": "Yes" if DOFUS_INSTALLED else "No",
         "Retro": "Yes" if RETRO_INSTALLED else "No",
-        "Cytrus": "Yes" if CYTRUS_INSTALLED else "No",
+        "Cytrus": "Yes" if is_cytrus_installed() else "No",
         "Accounts": account_count,
         "Proxies": proxy_count,
         "Debug mode": "Enabled" if get_debug_mode() else "Disabled",
@@ -287,7 +287,9 @@ class SettingsDialog(QDialog):
 
     def _on_update_toggled(self, enabled: bool) -> None:
         set_check_for_updates(enabled)
-        logger.info("[SETTINGS] Check for updates %s", "enabled" if enabled else "disabled")
+        logger.info(
+            "[SETTINGS] Check for updates %s", "enabled" if enabled else "disabled"
+        )
 
     def _on_check_now(self) -> None:
         self._check_now_btn.setEnabled(False)
@@ -363,9 +365,7 @@ def _configure_logging_for_debug(enabled: bool) -> None:
         ):
             handler.setLevel(logging.DEBUG if enabled else logging.INFO)
 
-    has_file_handler = any(
-        isinstance(h, logging.FileHandler) for h in root.handlers
-    )
+    has_file_handler = any(isinstance(h, logging.FileHandler) for h in root.handlers)
 
     if enabled and not has_file_handler:
         _log_path = os.path.join(app_config_dir, "ankalt_debug.log")

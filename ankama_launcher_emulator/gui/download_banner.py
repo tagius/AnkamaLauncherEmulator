@@ -53,6 +53,15 @@ class StripedProgressBar(QWidget):
         self._value = value
         self.update()
 
+    def minimum(self) -> int:
+        return self._min
+
+    def maximum(self) -> int:
+        return self._max
+
+    def value(self) -> int:
+        return self._value
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -70,7 +79,9 @@ class StripedProgressBar(QWidget):
         if indeterminate:
             fill_w = w
         else:
-            ratio = max(0.0, min(1.0, (self._value - self._min) / (self._max - self._min)))
+            ratio = max(
+                0.0, min(1.0, (self._value - self._min) / (self._max - self._min))
+            )
             fill_w = int(w * ratio)
 
         if fill_w <= 0:
@@ -93,12 +104,14 @@ class StripedProgressBar(QWidget):
         while x < fill_w + h:
             # Parallelogram: bottom-left, top-left+h, top-right+h, bottom-right
             half = _STRIPE_STEP // 2
-            poly = QPolygonF([
-                QPointF(x,          h),
-                QPointF(x + h,      0),
-                QPointF(x + h + half, 0),
-                QPointF(x + half,   h),
-            ])
+            poly = QPolygonF(
+                [
+                    QPointF(x, h),
+                    QPointF(x + h, 0),
+                    QPointF(x + h + half, 0),
+                    QPointF(x + half, h),
+                ]
+            )
             painter.drawPolygon(poly)
             x += _STRIPE_STEP
 
@@ -131,7 +144,9 @@ class DownloadBanner(QWidget):
 
         self._progress_label = CaptionLabel("")
         self._progress_label.setObjectName("statusStripText")
-        self._progress_label.setStyleSheet(f"color: {TEXT_MUTED_HEXA}; font-weight: bold;")
+        self._progress_label.setStyleSheet(
+            f"color: {TEXT_MUTED_HEXA}; font-weight: bold;"
+        )
         right_layout.addWidget(self._progress_label)
 
         main_layout.addLayout(right_layout)

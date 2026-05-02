@@ -25,11 +25,12 @@ from qfluentwidgets import (
 )
 
 from ankama_launcher_emulator.consts import (
-    CYTRUS_INSTALLED,
     DOFUS_INSTALLED,
     RESOURCES,
     RETRO_INSTALLED,
     ZAAP_PATH,
+    ensure_cytrus_in_path,
+    is_cytrus_installed,
 )
 from ankama_launcher_emulator.decrypter.crypto_helper import CryptoHelper
 from ankama_launcher_emulator.gui.account_card import AccountCard
@@ -59,6 +60,7 @@ from ankama_launcher_emulator.gui.star_dialog import (
 )
 from ankama_launcher_emulator.gui.update_banner import UpdateBanner
 from ankama_launcher_emulator.gui.utils import run_in_background
+from ankama_launcher_emulator.installation.cytrus_installer import install_cytrus
 from ankama_launcher_emulator.haapi.account_manager import remove_account
 from ankama_launcher_emulator.haapi.account_meta import AccountMeta
 from ankama_launcher_emulator.haapi.account_persistence import (
@@ -126,10 +128,12 @@ class MainWindow(QMainWindow):
         self._bootstrap_interfaces_done = not bootstrap_loading
         self._shield_recovery_attempts: dict[str, list[float]] = {}
         self._update_banner_shown = False
+        self._cytrus_installing = False
         server_handler = getattr(self._server, "handler", None)
         if server_handler is not None:
             server_handler.on_shield_recovery = self._on_server_shield_recovery
             server_handler.on_session_expired = self._on_server_session_expired
+        ensure_cytrus_in_path()
         self._setup_ui(accounts, all_interface)
         self._start_refresh_timer()
 
@@ -229,21 +233,46 @@ class MainWindow(QMainWindow):
         self._banner = DownloadBanner(self._top_bar)
         top_bar_layout.addWidget(self._banner)
 
-        if not CYTRUS_INSTALLED:
+        self._warning_card = None
+        self._install_cytrus_btn = None
+        self._install_cytrus_error = None
+        if not is_cytrus_installed():
             self._warning_card = CardWidget()
             self._warning_card.setObjectName("warningCard")
             warning_layout = QVBoxLayout(self._warning_card)
             warning_layout.setContentsMargins(12, 10, 12, 10)
-            warning_layout.setSpacing(4)
+            warning_layout.setSpacing(6)
             warning_layout.addWidget(BodyLabel("cytrus-v6 is not installed"))
             warning_hint = CaptionLabel(
-                "Auto-update will not work. Install it with: npm install -g cytrus-v6"
+                "Auto-update is disabled. Click below to install automatically."
             )
             warning_hint.setWordWrap(True)
             warning_layout.addWidget(warning_hint)
+
+            self._install_cytrus_btn = PushButton("Install Cytrus")
+            self._install_cytrus_btn.setFixedHeight(28)
+            self._install_cytrus_btn.setStyleSheet(
+                "PushButton {"
+                f"background-color: {ORANGE_HEXA};"
+                f"color: {TEXT_HEXA};"
+                "border: none;"
+                "border-radius: 14px;"
+                "padding: 2px 10px;"
+                "}"
+                "PushButton:hover {"
+                f"background-color: {ORANGE_HOVER_HEXA};"
+                "}"
+            )
+            self._install_cytrus_btn.clicked.connect(self._on_install_cytrus_clicked)
+            warning_layout.addWidget(self._install_cytrus_btn)
+
+            self._install_cytrus_error = CaptionLabel("")
+            self._install_cytrus_error.setWordWrap(True)
+            self._install_cytrus_error.setStyleSheet(f"color: {RED_HEXA};")
+            self._install_cytrus_error.setVisible(False)
+            warning_layout.addWidget(self._install_cytrus_error)
+
             top_bar_layout.addWidget(self._warning_card)
-        else:
-            self._warning_card = None
 
         header_row.addWidget(self._top_bar, 1)
         header_row.addStretch(1)
@@ -387,7 +416,10 @@ class MainWindow(QMainWindow):
         login = account["apikey"]["login"]
         is_official = bool(account.get("is_official", False))
         card = AccountCard(
-            login, all_interface, self._proxy_store, self._card_container,
+            login,
+            all_interface,
+            self._proxy_store,
+            self._card_container,
             is_official=is_official,
         )
         self._cards.append(card)
@@ -498,7 +530,9 @@ class MainWindow(QMainWindow):
             }
 
             if AccountMeta().cert_proxy_changed(login, proxy_url):
-                logger.debug(f"[LAUNCH] Proxy changed since cert validation for {login}, triggering shield refresh")
+                logger.debug(
+                    f"[LAUNCH] Proxy changed since cert validation for {login}, triggering shield refresh"
+                )
                 self._handle_shield_light(login, launch, card)
                 return
 
@@ -673,7 +707,9 @@ class MainWindow(QMainWindow):
             import time
 
             now = time.time()
-            attempts = [t for t in self._shield_recovery_attempts.get(login, []) if now - t < 60]
+            attempts = [
+                t for t in self._shield_recovery_attempts.get(login, []) if now - t < 60
+            ]
             if len(attempts) >= 1:
                 self._show_error(
                     f"Proxy appears blocked by Ankama for {login}. "
@@ -1100,9 +1136,7 @@ class MainWindow(QMainWindow):
         self._set_panel_status("Importing portable account...")
 
         def task(_on_progress: Callable) -> str:
-            return import_portable_account(
-                input_path, passphrase, self._proxy_store
-            )
+            return import_portable_account(input_path, passphrase, self._proxy_store)
 
         def on_success(result: object) -> None:
             self._set_panel_status("")
@@ -1128,6 +1162,55 @@ class MainWindow(QMainWindow):
         InfoBar.error(
             "", msg, duration=6000, position=InfoBarPosition.TOP_RIGHT, parent=self
         )
+
+    # --- Cytrus install ---
+
+    def _on_install_cytrus_clicked(self) -> None:
+        if self._cytrus_installing:
+            return
+        self._cytrus_installing = True
+        if self._install_cytrus_btn is not None:
+            self._install_cytrus_btn.setEnabled(False)
+            self._install_cytrus_btn.setText("Installing...")
+        if self._install_cytrus_error is not None:
+            self._install_cytrus_error.setVisible(False)
+
+        def task(on_progress: Callable[[str], None]) -> bool:
+            return install_cytrus(on_progress=on_progress)
+
+        def on_success(result: object) -> None:
+            self._cytrus_installing = False
+            success = bool(result)
+            self._on_cytrus_install_finished(success)
+
+        def on_error(_err: object) -> None:
+            self._cytrus_installing = False
+            self._on_cytrus_install_finished(False)
+
+        run_in_background(
+            task,
+            on_success=on_success,
+            on_error=on_error,
+            on_progress=self._set_panel_status,
+            parent=self,
+        )
+
+    def _on_cytrus_install_finished(self, success: bool) -> None:
+        if success:
+            self._set_panel_status("")
+            if self._warning_card is not None:
+                self._warning_card.setVisible(False)
+            self._show_success("cytrus-v6 installed successfully")
+        else:
+            if self._install_cytrus_btn is not None:
+                self._install_cytrus_btn.setEnabled(True)
+                self._install_cytrus_btn.setText("Install Cytrus")
+            if self._install_cytrus_error is not None:
+                self._install_cytrus_error.setText(
+                    "Installation failed. Check your internet connection and try again."
+                )
+                self._install_cytrus_error.setVisible(True)
+            self._set_panel_status("")
 
     # --- Refresh timer ---
 

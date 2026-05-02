@@ -423,6 +423,14 @@ def _fake_build_proxy_listener(proxy_url: str | None) -> tuple[None, str | None]
     return None, proxy_url
 
 
+def _fake_install_cytrus(on_progress: Callable[[str], None] | None = None) -> bool:
+    if on_progress:
+        on_progress("Installing Node.js...")
+        on_progress("Installing cytrus-v6 (this may take a minute)...")
+        on_progress("cytrus-v6 installed successfully")
+    return True
+
+
 def _apply_demo_dialog_style(dialog) -> None:
     dialog.setStyleSheet(DEMO_DARK_STYLESHEET)
 
@@ -485,7 +493,13 @@ def _install_fakes(stack: ExitStack) -> None:
     stack.enter_context(patch.object(main_window, "AccountMeta", _DemoAccountMeta))
     stack.enter_context(patch.object(main_window, "DOFUS_INSTALLED", True))
     stack.enter_context(patch.object(main_window, "RETRO_INSTALLED", True))
-    stack.enter_context(patch.object(main_window, "CYTRUS_INSTALLED", False))
+    stack.enter_context(
+        patch.object(main_window, "is_cytrus_installed", return_value=False)
+    )
+    stack.enter_context(
+        patch.object(main_window, "install_cytrus", _fake_install_cytrus)
+    )
+    stack.enter_context(patch.object(main_window, "ensure_cytrus_in_path"))
     stack.enter_context(patch.object(main_window, "run_in_background", _run_inline))
     stack.enter_context(
         patch.object(main_window, "verify_proxy_ip", _fake_verify_proxy_ip)
@@ -557,6 +571,7 @@ def _install_fakes(stack: ExitStack) -> None:
             fake_open_add_account_dialog,
         )
     )
+
     def fake_inspect_portable_account(_path: str, _passphrase: str) -> dict:
         return {
             "version": 1,
@@ -593,15 +608,10 @@ def _install_fakes(stack: ExitStack) -> None:
         _apply_demo_dialog_style(dialog)
         dialog._path_input.setText("/tmp/demo-portable-account.ankalt-account")
         dialog._passphrase_input.setText("demo-passphrase")
-        if (
-            dialog.exec() == dialog.DialogCode.Accepted
-            and dialog.preview_payload()
-        ):
+        if dialog.exec() == dialog.DialogCode.Accepted and dialog.preview_payload():
             payload = dialog.preview_payload()
             if payload is not None:
-                window._show_success(
-                    f"Demo import ready for {payload['login']}"
-                )
+                window._show_success(f"Demo import ready for {payload['login']}")
 
     def fake_open_export_account_dialog(window, login: str | None = None) -> None:
         target_login = login or "ready.alt@example.com"
@@ -786,6 +796,7 @@ class _DemoControls:
             ("Open Shield Dialog", window._open_demo_shield_dialog),
             ("Fake Launch First Account", self._launch_first_account),
             ("Toggle Cytrus Installed", self._toggle_cytrus_installed),
+            ("Simulate Cytrus Install", self._trigger_cytrus_install),
             ("Simulate Game Update", self._simulate_game_update),
             ("Switch to Dofus 3", lambda: window._select_game(True)),
             ("Switch to Retro", lambda: window._select_game(False)),
@@ -819,7 +830,10 @@ class _DemoControls:
 
     def _show_update_banner(self) -> None:
         banner = self._window._update_banner
-        banner.set_info("0.99.0", "https://github.com/Valentin-alix/AnkamaLauncherEmulator/releases/tag/v0.99.0")
+        banner.set_info(
+            "0.99.0",
+            "https://github.com/Valentin-alix/AnkamaLauncherEmulator/releases/tag/v0.99.0",
+        )
         banner.show()
 
     def _hide_update_banner(self) -> None:
@@ -827,9 +841,18 @@ class _DemoControls:
 
     def _cycle_update_banner(self) -> None:
         versions = [
-            ("0.6.0", "https://github.com/Valentin-alix/AnkamaLauncherEmulator/releases/tag/v0.6.0"),
-            ("0.7.0", "https://github.com/Valentin-alix/AnkamaLauncherEmulator/releases/tag/v0.7.0"),
-            ("0.99.0", "https://github.com/Valentin-alix/AnkamaLauncherEmulator/releases/tag/v0.99.0"),
+            (
+                "0.6.0",
+                "https://github.com/Valentin-alix/AnkamaLauncherEmulator/releases/tag/v0.6.0",
+            ),
+            (
+                "0.7.0",
+                "https://github.com/Valentin-alix/AnkamaLauncherEmulator/releases/tag/v0.7.0",
+            ),
+            (
+                "0.99.0",
+                "https://github.com/Valentin-alix/AnkamaLauncherEmulator/releases/tag/v0.99.0",
+            ),
         ]
         version, url = versions[self._update_step % len(versions)]
         banner = self._window._update_banner
@@ -841,6 +864,13 @@ class _DemoControls:
         warning_card = getattr(self._window, "_warning_card", None)
         if warning_card is not None:
             warning_card.setVisible(not self._cytrus_installed)
+            install_btn = getattr(self._window, "_install_cytrus_btn", None)
+            if install_btn is not None and not self._cytrus_installed:
+                install_btn.setEnabled(True)
+                install_btn.setText("Install Cytrus")
+            error_label = getattr(self._window, "_install_cytrus_error", None)
+            if error_label is not None:
+                error_label.setVisible(False)
         state = "installed" if self._cytrus_installed else "missing"
         self._cytrus_status.setText(f"Cytrus demo state: {state}")
 
@@ -853,6 +883,17 @@ class _DemoControls:
             else "cytrus-v6 missing in demo harness"
         )
         self._window._set_panel_status(message)
+
+    def _trigger_cytrus_install(self) -> None:
+        install_btn = getattr(self._window, "_install_cytrus_btn", None)
+        if (
+            install_btn is not None
+            and install_btn.isVisible()
+            and install_btn.isEnabled()
+        ):
+            install_btn.click()
+        else:
+            self._window._set_panel_status("Cytrus install button not available")
 
     def _simulate_game_update(self) -> None:
         from PyQt6.QtCore import QTimer
