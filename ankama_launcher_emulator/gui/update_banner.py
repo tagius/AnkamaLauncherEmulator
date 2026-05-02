@@ -17,6 +17,8 @@ class UpdateBanner(QWidget):
         self._setup_ui()
 
     def _setup_ui(self) -> None:
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(14, 8, 14, 8)
         layout.setSpacing(10)
